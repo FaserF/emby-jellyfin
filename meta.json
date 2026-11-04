@@ -1,0 +1,18 @@
+{
+  "category": "Channels",
+  "changelog": "- Universal Emby Server Federation (Movies, Series, Seasons, Episodes)\n- Native Emby Channel & Automatic .strm + .nfo Library Sync with TMDb/TVDb/IMDb IDs\n- Zero-Buffer Direct Play HTTP Range Stream Proxy & Dynamic MediaSource Provider\n- Bi-Directional Playhead & Watched Status Sync with Multi-User Account Mapping\n- Built-in Seerr / Jellyseerr / Suggestarr Webhook Guard & Availability API",
+  "description": "Universal Emby-to-Jellyfin Federation Plugin: Native Emby Channel, Automatic Library Federation (.strm & .nfo with TMDb/TVDb/IMDb IDs), Zero-Buffer Direct Play Stream Proxy, Bi-Directional Watch State Sync, Multi-User Account Mapping & Seerr/Suggestarr Request Guard.",
+  "guid": "b4c8e3a2-9f1d-4a7e-8b2c-6d5e4f3a2b1c",
+  "name": "Emby Federation & Bridge",
+  "overview": "Seamlessly federate remote Emby libraries into Jellyfin, Seerr, and Suggestarr with direct streaming and automatic request interception.",
+  "owner": "FaserF",
+  "targetAbi": "12.0.0.0",
+  "timestamp": "2026-11-04T07:00:00.0000000Z",
+  "version": "1.0.0.0",
+  "status": "Active",
+  "autoUpdate": false,
+  "imagePath": "thumb.png",
+  "assemblies": [
+    "Jellyfin.Plugin.Emby.dll"
+  ]
+}

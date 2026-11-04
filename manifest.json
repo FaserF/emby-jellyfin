@@ -1,0 +1,29 @@
+[
+  {
+    "guid": "b4c8e3a2-9f1d-4a7e-8b2c-6d5e4f3a2b1c",
+    "name": "Emby Federation & Bridge",
+    "description": "Universal Emby-to-Jellyfin Federation Plugin: Native Emby Channel, Automatic Library Federation (.strm & .nfo with TMDb/TVDb/IMDb IDs), Zero-Buffer Direct Play Stream Proxy, Bi-Directional Watch State Sync, Multi-User Account Mapping & Seerr/Suggestarr Request Guard.",
+    "overview": "Seamlessly federate remote Emby libraries into Jellyfin, Seerr, and Suggestarr with direct streaming and automatic request interception.",
+    "owner": "FaserF",
+    "category": "Channels",
+    "imageUrl": "https://raw.githubusercontent.com/FaserF/emby-jellyfin/main/Jellyfin.Plugin.Emby/thumb.png",
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "changelog": "- Universal Emby Server Federation (Movies, Series, Seasons, Episodes)\n- Native Emby Channel & Automatic .strm + .nfo Library Sync with TMDb/TVDb/IMDb IDs\n- Zero-Buffer Direct Play HTTP Range Stream Proxy & Dynamic MediaSource Provider\n- Bi-Directional Playhead & Watched Status Sync with Multi-User Account Mapping\n- Built-in Seerr / Jellyseerr / Suggestarr Webhook Guard & Availability API",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/FaserF/emby-jellyfin/releases/download/v1.0.0.0/emby.zip",
+        "checksum": "",
+        "timestamp": "2026-11-04T07:00:00Z"
+      },
+      {
+        "version": "1.0.0.0",
+        "changelog": "- Universal Emby Server Federation (Movies, Series, Seasons, Episodes)\n- Native Emby Channel & Automatic .strm + .nfo Library Sync with TMDb/TVDb/IMDb IDs\n- Zero-Buffer Direct Play HTTP Range Stream Proxy & Dynamic MediaSource Provider\n- Bi-Directional Playhead & Watched Status Sync with Multi-User Account Mapping\n- Built-in Seerr / Jellyseerr / Suggestarr Webhook Guard & Availability API",
+        "targetAbi": "10.10.0.0",
+        "sourceUrl": "https://github.com/FaserF/emby-jellyfin/releases/download/v1.0.0.0/emby.zip",
+        "checksum": "",
+        "timestamp": "2026-11-04T07:00:00Z"
+      }
+    ]
+  }
+]

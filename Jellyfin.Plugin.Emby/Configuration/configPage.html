@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Emby Federation &amp; Bridge</title>
+</head>
+<body>
+    <div id="EmbyConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+        <div data-role="content">
+            <div class="content-primary">
+                <form id="EmbyConfigForm">
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">🟢 Emby-to-Jellyfin Federation &amp; Stream Bridge</h2>
+                        <p>Federate any remote Emby server directly into Jellyfin. Stream movies and TV shows via high-speed zero-buffer direct playback, generate .strm + NFO sidecars with TMDb/TVDb/IMDb IDs, synchronize watch state and favorites bi-directionally, and prevent duplicate requests in Seerr &amp; Suggestarr.</p>
+
+                        <!-- Primary Connection -->
+                        <div style="background:#18181b;border:1px solid #52B54B;border-radius:8px;padding:16px;margin-bottom:20px;">
+                            <h3 style="margin-top:0;color:#52B54B;">📡 Remote Emby Server Connection</h3>
+                            <div class="inputContainer">
+                                <label class="inputLabel" for="txtEmbyServerUrl">Emby Server URL</label>
+                                <input id="txtEmbyServerUrl" type="url" is="emby-input" placeholder="https://emby.example.com" />
+                                <div class="fieldDescription">The full HTTPS or HTTP URL of the remote Emby server.</div>
+                            </div>
+
+                            <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                                <div class="inputContainer" style="flex:1;min-width:200px;">
+                                    <label class="inputLabel" for="txtEmbyUsername">Emby Username</label>
+                                    <input id="txtEmbyUsername" type="text" is="emby-input" placeholder="Username" />
+                                </div>
+                                <div class="inputContainer" style="flex:1;min-width:200px;">
+                                    <label class="inputLabel" for="txtEmbyPassword">Emby Password</label>
+                                    <input id="txtEmbyPassword" type="password" is="emby-input" placeholder="Password (if using password auth)" />
+                                </div>
+                            </div>
+
+                            <div class="inputContainer">
+                                <label class="inputLabel" for="txtEmbyApiKey">Emby Access Token / API Key (Optional)</label>
+                                <input id="txtEmbyApiKey" type="password" is="emby-input" placeholder="Auto-populated upon successful test or manual token" />
+                                <div class="fieldDescription">If left empty, authenticating via Username &amp; Password will automatically obtain and save the access token.</div>
+                            </div>
+
+                            <div style="display:flex;gap:10px;margin-top:10px;align-items:center;">
+                                <button is="emby-button" type="button" id="btnTestEmbyConnection" class="raised button-submit" style="background:#52B54B;color:#fff;">
+                                    <span>🔍 Test &amp; Authenticate Connection</span>
+                                </button>
+                                <button is="emby-button" type="button" id="btnTriggerEmbySync" class="raised" style="background:#27272a;color:#fff;border:1px solid #52B54B;">
+                                    <span>⚡ Sync Emby Library Now</span>
+                                </button>
+                                <div id="embyConnStatus" style="font-size:13px;font-weight:bold;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Multi-User Account Mapping -->
+                        <div style="background:#18181b;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:20px;">
+                            <h3 style="margin-top:0;">👥 Multi-User Account Mapping</h3>
+                            <p style="font-size:13px;color:#aaa;">Map individual Jellyfin user profiles to their own distinct Emby accounts for personalized watch history and favorites. If unlinked, users fall back to the primary account (or public mode).</p>
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="chkEnablePublicFallback" type="checkbox" is="emby-checkbox" />
+                                    <span>Allow unlinked Jellyfin users to stream via Primary Emby Account</span>
+                                </label>
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel" for="selectPrimaryJellyfinUser">Primary Jellyfin Admin / Default User</label>
+                                <select is="emby-select" id="selectPrimaryJellyfinUser" class="emby-select-withcolor emby-select"></select>
+                            </div>
+                            <div id="linkedUsersTable" style="margin-top:14px;">Loading user mappings...</div>
+                        </div>
+                    </div>
+
+                    <!-- Library Federation & .strm Settings -->
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">📁 Library Federation &amp; .strm Generator</h2>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="chkEnableLibraryFederation" type="checkbox" is="emby-checkbox" />
+                                <span>Enable Automatic Emby Library Federation (.strm + .nfo sidecars)</span>
+                            </label>
+                            <div class="fieldDescription">Generates lightweight .strm pointers and rich .nfo sidecars with TMDb/TVDb IDs and streamdetails so items appear natively in Jellyfin and Seerr.</div>
+                        </div>
+
+                        <div style="display:flex;gap:20px;flex-wrap:wrap;margin:12px 0;">
+                            <div class="checkboxContainer">
+                                <label class="emby-checkbox-label">
+                                    <input id="chkEnableMoviesFederation" type="checkbox" is="emby-checkbox" />
+                                    <span>Sync Movies</span>
+                                </label>
+                            </div>
+                            <div class="checkboxContainer">
+                                <label class="emby-checkbox-label">
+                                    <input id="chkEnableSeriesFederation" type="checkbox" is="emby-checkbox" />
+                                    <span>Sync TV Series, Seasons &amp; Episodes</span>
+                                </label>
+                            </div>
+                            <div class="checkboxContainer">
+                                <label class="emby-checkbox-label">
+                                    <input id="chkAttachToExistingLibraries" type="checkbox" is="emby-checkbox" />
+                                    <span>Merge into existing libraries (Filme / Serien)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                            <div class="inputContainer" style="flex:1;min-width:200px;">
+                                <label class="inputLabel" for="txtTargetMoviesLibrary">Target Movies Library Folder</label>
+                                <input id="txtTargetMoviesLibrary" type="text" is="emby-input" value="Filme" />
+                            </div>
+                            <div class="inputContainer" style="flex:1;min-width:200px;">
+                                <label class="inputLabel" for="txtTargetSeriesLibrary">Target TV Series Library Folder</label>
+                                <input id="txtTargetSeriesLibrary" type="text" is="emby-input" value="Serien" />
+                            </div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="txtStrmLibraryPath">Federated Library Base Path</label>
+                            <input id="txtStrmLibraryPath" type="text" is="emby-input" value="/data/emby" />
+                            <div class="fieldDescription">Directory where .strm files and NFO sidecars are stored (e.g. /data/emby or /data/media/emby). Subfolders 'movies' and 'tv' are created automatically.</div>
+                        </div>
+
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="chkUseDirectEmbyStreamUrls" type="checkbox" is="emby-checkbox" />
+                                <span>Direct Emby Stream URLs in .strm files (Recommended: direct zero-hop streaming)</span>
+                            </label>
+                            <div class="fieldDescription">When checked, .strm points straight to Emby stream URL with token. When unchecked, streams route through local Jellyfin proxy endpoint.</div>
+                        </div>
+                    </div>
+
+                    <!-- Watch History & Playback Sync -->
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">⏱️ Playhead &amp; Favorite Synchronization</h2>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="chkEnableStreamingChannel" type="checkbox" is="emby-checkbox" />
+                                <span>Enable Emby Live Channel in Jellyfin (Live browsing of remote Emby catalog)</span>
+                            </label>
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="chkEnablePlayheadSync" type="checkbox" is="emby-checkbox" />
+                                <span>Sync Playback Progress / Watch History with Emby</span>
+                            </label>
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="chkEnableFavoriteSync" type="checkbox" is="emby-checkbox" />
+                                <span>Sync Favorites bi-directionally (Jellyfin ♥️ &lt;=&gt; Emby Favorite)</span>
+                            </label>
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="chkFetchArtworkFromEmby" type="checkbox" is="emby-checkbox" />
+                                <span>Fetch Posters, Backdrops &amp; Banners directly from Emby</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Seerr & Suggestarr Request Guard -->
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">🛡️ Seerr &amp; Suggestarr Request Guard</h2>
+                        <p style="font-size:13px;color:#aaa;">When users request movies or series in Seerr or Suggestarr, this guard checks if the item is already available on the federated Emby server. If available, the request is automatically declined with a friendly message and direct link to stream it immediately.</p>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="chkEnableSeerrRequestGuard" type="checkbox" is="emby-checkbox" />
+                                <span>Enable Seerr / Suggestarr Request Guard</span>
+                            </label>
+                        </div>
+
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                            <div class="inputContainer" style="flex:1;min-width:200px;">
+                                <label class="inputLabel" for="txtSeerrUrl">Seerr URL</label>
+                                <input id="txtSeerrUrl" type="url" is="emby-input" value="http://jellyseerr:5055" />
+                            </div>
+                            <div class="inputContainer" style="flex:1;min-width:200px;">
+                                <label class="inputLabel" for="txtSeerrApiKey">Seerr API Key</label>
+                                <input id="txtSeerrApiKey" type="password" is="emby-input" placeholder="Seerr API Key" />
+                            </div>
+                        </div>
+
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                            <div class="inputContainer" style="flex:1;min-width:200px;">
+                                <label class="inputLabel" for="txtSonarrUrl">Sonarr URL (Optional)</label>
+                                <input id="txtSonarrUrl" type="url" is="emby-input" value="http://sonarr:8989" />
+                            </div>
+                            <div class="inputContainer" style="flex:1;min-width:200px;">
+                                <label class="inputLabel" for="txtSonarrApiKey">Sonarr API Key (Optional)</label>
+                                <input id="txtSonarrApiKey" type="password" is="emby-input" placeholder="Sonarr API Key" />
+                            </div>
+                        </div>
+
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                            <div class="inputContainer" style="flex:1;min-width:200px;">
+                                <label class="inputLabel" for="txtRadarrUrl">Radarr URL (Optional)</label>
+                                <input id="txtRadarrUrl" type="url" is="emby-input" value="http://radarr:7878" />
+                            </div>
+                            <div class="inputContainer" style="flex:1;min-width:200px;">
+                                <label class="inputLabel" for="txtRadarrApiKey">Radarr API Key (Optional)</label>
+                                <input id="txtRadarrApiKey" type="password" is="emby-input" placeholder="Radarr API Key" />
+                            </div>
+                        </div>
+
+                        <div style="margin-top:10px;padding:12px;background:#18181b;border:1px solid #333;border-radius:6px;font-size:13px;">
+                            <strong>Webhook Endpoint for Seerr / Overseerr:</strong><br />
+                            Add a Webhook notification in Seerr settings pointing to:<br />
+                            <code id="lblSeerrWebhookUrl" style="color:#52B54B;font-size:14px;word-break:break-all;">http://&lt;jellyfin-host&gt;:8096/api/embyPlugin/webhook/seerr</code>
+                        </div>
+                    </div>
+
+                    <div>
+                        <button is="emby-button" type="submit" class="raised button-submit block emby-button" style="background:#52B54B;color:#fff;margin-top:20px;padding:12px;">
+                            <span>💾 Save Configuration</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <script type="text/javascript">
+            (function () {
+                var pluginId = "b4c8e3a2-9f1d-4a7e-8b2c-6d5e4f3a2b1c";
+
+                function loadConfig(page) {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        page.querySelector("#txtEmbyServerUrl").value = config.EmbyServerUrl || "";
+                        page.querySelector("#txtEmbyUsername").value = config.EmbyUsername || "";
+                        page.querySelector("#txtEmbyPassword").value = config.EmbyPassword || "";
+                        page.querySelector("#txtEmbyApiKey").value = config.EmbyApiKey || "";
+
+                        page.querySelector("#chkEnableStreamingChannel").checked = config.EnableStreamingChannel !== false;
+                        page.querySelector("#chkEnablePublicFallback").checked = config.EnablePublicFallbackForUnlinkedUsers !== false;
+                        page.querySelector("#chkEnableLibraryFederation").checked = config.EnableLibraryFederation !== false;
+                        page.querySelector("#chkEnableMoviesFederation").checked = config.EnableMoviesFederation !== false;
+                        page.querySelector("#chkEnableSeriesFederation").checked = config.EnableSeriesFederation !== false;
+                        page.querySelector("#chkAttachToExistingLibraries").checked = config.AttachToExistingLibraries !== false;
+                        page.querySelector("#txtTargetMoviesLibrary").value = config.TargetMoviesLibraryName || "Filme";
+                        page.querySelector("#txtTargetSeriesLibrary").value = config.TargetSeriesLibraryName || "Serien";
+                        page.querySelector("#txtStrmLibraryPath").value = config.StrmLibraryPath || "/data/emby";
+                        page.querySelector("#chkUseDirectEmbyStreamUrls").checked = config.UseDirectEmbyStreamUrls !== false;
+
+                        page.querySelector("#chkEnablePlayheadSync").checked = config.EnablePlayheadSync !== false;
+                        page.querySelector("#chkEnableFavoriteSync").checked = config.EnableFavoriteSync !== false;
+                        page.querySelector("#chkFetchArtworkFromEmby").checked = config.FetchArtworkFromEmby !== false;
+
+                        page.querySelector("#chkEnableSeerrRequestGuard").checked = config.EnableSeerrRequestGuard !== false;
+                        page.querySelector("#txtSeerrUrl").value = config.SeerrUrl || "http://jellyseerr:5055";
+                        page.querySelector("#txtSeerrApiKey").value = config.SeerrApiKey || "";
+                        page.querySelector("#txtSonarrUrl").value = config.SonarrUrl || "http://sonarr:8989";
+                        page.querySelector("#txtSonarrApiKey").value = config.SonarrApiKey || "";
+                        page.querySelector("#txtRadarrUrl").value = config.RadarrUrl || "http://radarr:7878";
+                        page.querySelector("#txtRadarrApiKey").value = config.RadarrApiKey || "";
+
+                        // Dynamic Webhook URL display
+                        var host = window.location.origin;
+                        var webhookUrl = host + "/api/embyPlugin/webhook/seerr";
+                        var lblWebhook = page.querySelector("#lblSeerrWebhookUrl");
+                        if (lblWebhook) lblWebhook.textContent = webhookUrl;
+
+                        populateJellyfinUsers(page, config);
+                        Dashboard.hideLoadingMsg();
+                    }).catch(function (err) {
+                        Dashboard.hideLoadingMsg();
+                        console.error("Failed to load Emby plugin config", err);
+                    });
+                }
+
+                function populateJellyfinUsers(page, config) {
+                    ApiClient.getUsers().then(function (users) {
+                        var select = page.querySelector("#selectPrimaryJellyfinUser");
+                        select.innerHTML = '<option value="">-- None / System Default --</option>';
+                        users.forEach(function (u) {
+                            var opt = document.createElement("option");
+                            opt.value = u.Name;
+                            opt.textContent = u.Name + " (" + u.Id.substring(0, 8) + ")";
+                            if (config.PrimaryJellyfinUser === u.Name || config.PrimaryJellyfinUserId === u.Id) {
+                                opt.selected = true;
+                            }
+                            select.appendChild(opt);
+                        });
+
+                        renderLinkedUsersTable(page, users, config.UserAccounts || []);
+                    }).catch(function (err) {
+                        console.warn("Could not fetch Jellyfin users", err);
+                    });
+                }
+
+                function renderLinkedUsersTable(page, jellyfinUsers, linkedList) {
+                    var container = page.querySelector("#linkedUsersTable");
+                    if (!linkedList || linkedList.length === 0) {
+                        container.innerHTML = '<p style="color:#888;font-style:italic;">No user-specific account mappings yet. All users use the primary Emby server connection.</p>';
+                        return;
+                    }
+
+                    var html = '<table style="width:100%;border-collapse:collapse;font-size:13px;text-align:left;">';
+                    html += '<thead><tr style="border-bottom:1px solid #444;color:#aaa;"><th>Jellyfin User</th><th>Emby User</th><th>Emby Server</th><th>Token Status</th></tr></thead><tbody>';
+                    linkedList.forEach(function (entry) {
+                        html += '<tr style="border-bottom:1px solid #222;">';
+                        html += '<td style="padding:8px 4px;font-weight:bold;">' + (entry.JellyfinUser || "—") + '</td>';
+                        html += '<td style="padding:8px 4px;">' + (entry.EmbyUsername || "—") + '</td>';
+                        html += '<td style="padding:8px 4px;color:#aaa;">' + (entry.EmbyServerUrl || "—") + '</td>';
+                        html += '<td style="padding:8px 4px;">' + (entry.AccessToken ? '<span style="color:#52B54B;">● Connected</span>' : '<span style="color:#e50914;">○ Needs Auth</span>') + '</td>';
+                        html += '</tr>';
+                    });
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                }
+
+                function saveConfig(page) {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        config.EmbyServerUrl = page.querySelector("#txtEmbyServerUrl").value.trim();
+                        config.EmbyUsername = page.querySelector("#txtEmbyUsername").value.trim();
+                        config.EmbyPassword = page.querySelector("#txtEmbyPassword").value;
+                        config.EmbyApiKey = page.querySelector("#txtEmbyApiKey").value.trim();
+
+                        config.EnableStreamingChannel = page.querySelector("#chkEnableStreamingChannel").checked;
+                        config.EnablePublicFallbackForUnlinkedUsers = page.querySelector("#chkEnablePublicFallback").checked;
+                        config.PrimaryJellyfinUser = page.querySelector("#selectPrimaryJellyfinUser").value;
+
+                        config.EnableLibraryFederation = page.querySelector("#chkEnableLibraryFederation").checked;
+                        config.EnableMoviesFederation = page.querySelector("#chkEnableMoviesFederation").checked;
+                        config.EnableSeriesFederation = page.querySelector("#chkEnableSeriesFederation").checked;
+                        config.AttachToExistingLibraries = page.querySelector("#chkAttachToExistingLibraries").checked;
+                        config.TargetMoviesLibraryName = page.querySelector("#txtTargetMoviesLibrary").value.trim() || "Filme";
+                        config.TargetSeriesLibraryName = page.querySelector("#txtTargetSeriesLibrary").value.trim() || "Serien";
+                        config.StrmLibraryPath = page.querySelector("#txtStrmLibraryPath").value.trim() || "/data/emby";
+                        config.UseDirectEmbyStreamUrls = page.querySelector("#chkUseDirectEmbyStreamUrls").checked;
+
+                        config.EnablePlayheadSync = page.querySelector("#chkEnablePlayheadSync").checked;
+                        config.EnableFavoriteSync = page.querySelector("#chkEnableFavoriteSync").checked;
+                        config.FetchArtworkFromEmby = page.querySelector("#chkFetchArtworkFromEmby").checked;
+
+                        config.EnableSeerrRequestGuard = page.querySelector("#chkEnableSeerrRequestGuard").checked;
+                        config.SeerrUrl = page.querySelector("#txtSeerrUrl").value.trim();
+                        config.SeerrApiKey = page.querySelector("#txtSeerrApiKey").value.trim();
+                        config.SonarrUrl = page.querySelector("#txtSonarrUrl").value.trim();
+                        config.SonarrApiKey = page.querySelector("#txtSonarrApiKey").value.trim();
+                        config.RadarrUrl = page.querySelector("#txtRadarrUrl").value.trim();
+                        config.RadarrApiKey = page.querySelector("#txtRadarrApiKey").value.trim();
+
+                        ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
+                            Dashboard.processPluginConfigurationUpdateResult(result);
+                        }).catch(function (err) {
+                            Dashboard.hideLoadingMsg();
+                            Dashboard.alert("Error saving Emby plugin configuration: " + err);
+                        });
+                    });
+                }
+
+                var pageElem = document.querySelector("#EmbyConfigPage");
+                pageElem.addEventListener("pageshow", function () {
+                    loadConfig(this);
+                });
+
+                pageElem.querySelector("#EmbyConfigForm").addEventListener("submit", function (e) {
+                    e.preventDefault();
+                    saveConfig(pageElem);
+                    return false;
+                });
+
+                // Test Connection Button
+                pageElem.querySelector("#btnTestEmbyConnection").addEventListener("click", function () {
+                    var statusEl = pageElem.querySelector("#embyConnStatus");
+                    statusEl.style.color = "#ffcc00";
+                    statusEl.textContent = "Testing connection...";
+
+                    var payload = {
+                        serverUrl: pageElem.querySelector("#txtEmbyServerUrl").value.trim(),
+                        username: pageElem.querySelector("#txtEmbyUsername").value.trim(),
+                        password: pageElem.querySelector("#txtEmbyPassword").value,
+                        token: pageElem.querySelector("#txtEmbyApiKey").value.trim()
+                    };
+
+                    fetch("/api/embyPlugin/auth/test", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload)
+                    }).then(function (res) {
+                        return res.json();
+                    }).then(function (data) {
+                        if (data.ok) {
+                            statusEl.style.color = "#52B54B";
+                            statusEl.textContent = "✓ Connected as " + data.embyUser + " (Playback: " + (data.canPlay ? "OK" : "Restricted") + ", Reachable: " + data.sampleReachable + ")";
+                            if (data.accessToken) {
+                                pageElem.querySelector("#txtEmbyApiKey").value = data.accessToken;
+                            }
+                        } else {
+                            statusEl.style.color = "#ff4d4d";
+                            statusEl.textContent = "✗ Connection failed: " + (data.error || "Unknown error");
+                        }
+                    }).catch(function (err) {
+                        statusEl.style.color = "#ff4d4d";
+                        statusEl.textContent = "✗ Connection error: " + err.message;
+                    });
+                });
+
+                // Trigger Sync Button
+                pageElem.querySelector("#btnTriggerEmbySync").addEventListener("click", function () {
+                    var statusEl = pageElem.querySelector("#embyConnStatus");
+                    statusEl.style.color = "#ffcc00";
+                    statusEl.textContent = "Triggering sync...";
+
+                    fetch("/api/embyPlugin/sync", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" }
+                    }).then(function (res) {
+                        return res.json();
+                    }).then(function (data) {
+                        if (data.ok) {
+                            statusEl.style.color = "#52B54B";
+                            statusEl.textContent = "✓ Sync completed: " + (data.moviesAdded || 0) + " movies, " + (data.episodesAdded || 0) + " episodes processed.";
+                        } else {
+                            statusEl.style.color = "#ff4d4d";
+                            statusEl.textContent = "✗ Sync error: " + (data.error || "Failed");
+                        }
+                    }).catch(function (err) {
+                        statusEl.style.color = "#ff4d4d";
+                        statusEl.textContent = "✗ Sync error: " + err.message;
+                    });
+                });
+            })();
+        </script>
+    </div>
+</body>
+</html>
