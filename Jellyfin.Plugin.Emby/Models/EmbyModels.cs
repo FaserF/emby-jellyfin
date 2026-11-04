@@ -76,8 +76,47 @@ public class EmbyItemDto
     [JsonPropertyName("OfficialRating")]
     public string? OfficialRating { get; set; }
 
+    [JsonPropertyName("CustomRating")]
+    public string? CustomRating { get; set; }
+
+    [JsonPropertyName("CriticRating")]
+    public float? CriticRating { get; set; }
+
     [JsonPropertyName("RunTimeTicks")]
     public long? RunTimeTicks { get; set; }
+
+    [JsonPropertyName("SortName")]
+    public string? SortName { get; set; }
+
+    [JsonPropertyName("ForcedSortName")]
+    public string? ForcedSortName { get; set; }
+
+    [JsonPropertyName("Taglines")]
+    public List<string>? Taglines { get; set; }
+
+    [JsonPropertyName("Tags")]
+    public List<string>? Tags { get; set; }
+
+    [JsonPropertyName("Studios")]
+    public List<EmbyStudioDto>? Studios { get; set; }
+
+    [JsonPropertyName("People")]
+    public List<EmbyPersonDto>? People { get; set; }
+
+    [JsonPropertyName("Chapters")]
+    public List<EmbyChapterDto>? Chapters { get; set; }
+
+    [JsonPropertyName("Status")]
+    public string? Status { get; set; }
+
+    [JsonPropertyName("AirDays")]
+    public List<string>? AirDays { get; set; }
+
+    [JsonPropertyName("AirTime")]
+    public string? AirTime { get; set; }
+
+    [JsonPropertyName("DateCreated")]
+    public DateTime? DateCreated { get; set; }
 
     [JsonPropertyName("SeriesId")]
     public string? SeriesId { get; set; }
@@ -263,4 +302,43 @@ public class EmbyAvailabilityMatch
     public string MediaType { get; set; } = string.Empty;
     public string EmbyWebUrl { get; set; } = string.Empty;
     public string DirectStreamUrl { get; set; } = string.Empty;
+}
+
+public class EmbyPersonDto
+{
+    [JsonPropertyName("Name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("Role")]
+    public string? Role { get; set; }
+
+    [JsonPropertyName("Type")]
+    public string? Type { get; set; }
+
+    [JsonPropertyName("Id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("PrimaryImageTag")]
+    public string? PrimaryImageTag { get; set; }
+}
+
+public class EmbyStudioDto
+{
+    [JsonPropertyName("Name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("Id")]
+    public string? Id { get; set; }
+}
+
+public class EmbyChapterDto
+{
+    [JsonPropertyName("StartPositionTicks")]
+    public long StartPositionTicks { get; set; }
+
+    [JsonPropertyName("Name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("ImageTag")]
+    public string? ImageTag { get; set; }
 }

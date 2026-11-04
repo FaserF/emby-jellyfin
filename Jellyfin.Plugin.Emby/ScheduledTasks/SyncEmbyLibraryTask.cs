@@ -74,8 +74,19 @@ public class SyncEmbyLibraryTask : IScheduledTask
         PluginConfiguration config,
         ILogger logger,
         IProgress<double>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool isManual = false)
     {
+        if (!isManual && config.EnableIncrementalSync && config.LastSyncUtc.HasValue)
+        {
+            var interval = TimeSpan.FromHours(config.SyncIntervalHours > 0 ? config.SyncIntervalHours : 24);
+            if (DateTime.UtcNow - config.LastSyncUtc.Value < interval)
+            {
+                logger.LogInformation("Emby library sync skipped: last sync was at {LastSync} UTC (protection interval is {Hours}h).", config.LastSyncUtc.Value, config.SyncIntervalHours);
+                return 0;
+            }
+        }
+
         var (baseUrl, token, _, serverId) = await client.EnsureAuthenticatedAsync(null, cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(token))
         {
@@ -92,9 +103,15 @@ public class SyncEmbyLibraryTask : IScheduledTask
         var ignored = LoadIgnoredIdentifiers(rootDir, config);
         var changes = 0;
 
+        var minDate = config.EnableIncrementalSync ? config.LastSyncUtc : null;
+
         if (config.EnableMoviesFederation)
         {
-            var movies = await client.GetItemsAsync("Movie", cancellationToken: cancellationToken).ConfigureAwait(false);
+            var movies = await client.GetItemsAsync("Movie", minDateLastSaved: minDate, cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (config.ApiRequestDelayMs > 0)
+            {
+                await Task.Delay(config.ApiRequestDelayMs, cancellationToken).ConfigureAwait(false);
+            }
             progress?.Report(30);
             var activeMovieDirs = new HashSet<string>(StringComparer.Ordinal);
 
@@ -144,8 +161,16 @@ public class SyncEmbyLibraryTask : IScheduledTask
 
         if (config.EnableSeriesFederation)
         {
-            var seriesList = await client.GetItemsAsync("Series", cancellationToken: cancellationToken).ConfigureAwait(false);
-            var episodes = await client.GetItemsAsync("Episode", cancellationToken: cancellationToken).ConfigureAwait(false);
+            var seriesList = await client.GetItemsAsync("Series", minDateLastSaved: minDate, cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (config.ApiRequestDelayMs > 0)
+            {
+                await Task.Delay(config.ApiRequestDelayMs, cancellationToken).ConfigureAwait(false);
+            }
+            var episodes = await client.GetItemsAsync("Episode", minDateLastSaved: minDate, cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (config.ApiRequestDelayMs > 0)
+            {
+                await Task.Delay(config.ApiRequestDelayMs, cancellationToken).ConfigureAwait(false);
+            }
             progress?.Report(80);
 
             var seriesMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -442,94 +467,139 @@ public class SyncEmbyLibraryTask : IScheduledTask
     private static void AppendFileInfoXml(StringBuilder sb, EmbyItemDto item)
     {
         var ms = item.MediaSources?.FirstOrDefault();
-        if (ms?.MediaStreams == null || ms.MediaStreams.Count == 0)
-        {
-            return;
-        }
-
-        var ticks = ms.RunTimeTicks ?? item.RunTimeTicks ?? 0;
+        var ticks = ms?.RunTimeTicks ?? item.RunTimeTicks ?? 0;
         var durSec = ticks > 0 ? ticks / 10_000_000 : 0;
 
-        sb.AppendLine("  <fileinfo>");
-        sb.AppendLine("    <streamdetails>");
-        foreach (var st in ms.MediaStreams)
+        if (ms?.MediaStreams != null && ms.MediaStreams.Count > 0)
         {
-            if (string.Equals(st.Type, "Video", StringComparison.OrdinalIgnoreCase))
+            sb.AppendLine("  <fileinfo>");
+            sb.AppendLine("    <streamdetails>");
+            foreach (var st in ms.MediaStreams)
             {
-                sb.AppendLine("      <video>");
-                if (!string.IsNullOrWhiteSpace(st.Codec))
+                if (string.Equals(st.Type, "Video", StringComparison.OrdinalIgnoreCase))
                 {
-                    sb.AppendLine($"        <codec>{WebUtility.HtmlEncode(st.Codec)}</codec>");
-                }
+                    sb.AppendLine("      <video>");
+                    if (!string.IsNullOrWhiteSpace(st.Codec))
+                    {
+                        sb.AppendLine($"        <codec>{WebUtility.HtmlEncode(st.Codec)}</codec>");
+                    }
 
-                if (st.Width.HasValue && st.Height.HasValue)
+                    if (st.Width.HasValue && st.Height.HasValue)
+                    {
+                        sb.AppendLine($"        <width>{st.Width.Value}</width>");
+                        sb.AppendLine($"        <height>{st.Height.Value}</height>");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(st.AspectRatio))
+                    {
+                        sb.AppendLine($"        <aspect>{WebUtility.HtmlEncode(st.AspectRatio)}</aspect>");
+                    }
+
+                    if (st.BitRate.HasValue)
+                    {
+                        sb.AppendLine($"        <bitrate>{st.BitRate.Value}</bitrate>");
+                    }
+
+                    if (st.BitDepth.HasValue)
+                    {
+                        sb.AppendLine($"        <bitdepth>{st.BitDepth.Value}</bitdepth>");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(st.VideoRange))
+                    {
+                        sb.AppendLine($"        <hdrtype>{WebUtility.HtmlEncode(st.VideoRange)}</hdrtype>");
+                    }
+
+                    sb.AppendLine($"        <scantype>{(st.IsInterlaced ? "interlaced" : "progressive")}</scantype>");
+
+                    if (durSec > 0)
+                    {
+                        sb.AppendLine($"        <durationinseconds>{durSec}</durationinseconds>");
+                    }
+
+                    sb.AppendLine("      </video>");
+                }
+                else if (string.Equals(st.Type, "Audio", StringComparison.OrdinalIgnoreCase))
                 {
-                    sb.AppendLine($"        <width>{st.Width.Value}</width>");
-                    sb.AppendLine($"        <height>{st.Height.Value}</height>");
-                }
+                    sb.AppendLine("      <audio>");
+                    if (!string.IsNullOrWhiteSpace(st.Codec))
+                    {
+                        sb.AppendLine($"        <codec>{WebUtility.HtmlEncode(st.Codec)}</codec>");
+                    }
 
-                if (durSec > 0)
+                    if (!string.IsNullOrWhiteSpace(st.Language))
+                    {
+                        sb.AppendLine($"        <language>{WebUtility.HtmlEncode(st.Language)}</language>");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(st.DisplayTitle ?? st.Title))
+                    {
+                        sb.AppendLine($"        <title>{WebUtility.HtmlEncode(st.DisplayTitle ?? st.Title)}</title>");
+                    }
+
+                    sb.AppendLine($"        <channels>{st.Channels ?? 2}</channels>");
+                    if (st.BitRate.HasValue)
+                    {
+                        sb.AppendLine($"        <bitrate>{st.BitRate.Value}</bitrate>");
+                    }
+
+                    if (st.SampleRate.HasValue)
+                    {
+                        sb.AppendLine($"        <samplingrate>{st.SampleRate.Value}</samplingrate>");
+                    }
+
+                    sb.AppendLine("      </audio>");
+                }
+                else if (string.Equals(st.Type, "Subtitle", StringComparison.OrdinalIgnoreCase))
                 {
-                    sb.AppendLine($"        <durationinseconds>{durSec}</durationinseconds>");
-                }
+                    sb.AppendLine("      <subtitle>");
+                    if (!string.IsNullOrWhiteSpace(st.Language))
+                    {
+                        sb.AppendLine($"        <language>{WebUtility.HtmlEncode(st.Language)}</language>");
+                    }
 
-                sb.AppendLine("      </video>");
+                    if (!string.IsNullOrWhiteSpace(st.Codec))
+                    {
+                        sb.AppendLine($"        <format>{WebUtility.HtmlEncode(st.Codec)}</format>");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(st.DisplayTitle ?? st.Title))
+                    {
+                        sb.AppendLine($"        <title>{WebUtility.HtmlEncode(st.DisplayTitle ?? st.Title)}</title>");
+                    }
+
+                    if (st.IsForced)
+                    {
+                        sb.AppendLine("        <forced>true</forced>");
+                    }
+                    if (st.IsDefault)
+                    {
+                        sb.AppendLine("        <default>true</default>");
+                    }
+
+                    sb.AppendLine("      </subtitle>");
+                }
             }
-            else if (string.Equals(st.Type, "Audio", StringComparison.OrdinalIgnoreCase))
-            {
-                sb.AppendLine("      <audio>");
-                if (!string.IsNullOrWhiteSpace(st.Codec))
-                {
-                    sb.AppendLine($"        <codec>{WebUtility.HtmlEncode(st.Codec)}</codec>");
-                }
 
-                if (!string.IsNullOrWhiteSpace(st.Language))
-                {
-                    sb.AppendLine($"        <language>{WebUtility.HtmlEncode(st.Language)}</language>");
-                }
-
-                if (!string.IsNullOrWhiteSpace(st.Title ?? st.DisplayTitle))
-                {
-                    sb.AppendLine($"        <title>{WebUtility.HtmlEncode(st.DisplayTitle ?? st.Title)}</title>");
-                }
-
-                sb.AppendLine($"        <channels>{st.Channels ?? 2}</channels>");
-                if (st.BitRate.HasValue)
-                {
-                    sb.AppendLine($"        <bitrate>{st.BitRate.Value}</bitrate>");
-                }
-
-                sb.AppendLine("      </audio>");
-            }
-            else if (string.Equals(st.Type, "Subtitle", StringComparison.OrdinalIgnoreCase))
-            {
-                sb.AppendLine("      <subtitle>");
-                if (!string.IsNullOrWhiteSpace(st.Language))
-                {
-                    sb.AppendLine($"        <language>{WebUtility.HtmlEncode(st.Language)}</language>");
-                }
-
-                if (!string.IsNullOrWhiteSpace(st.Codec))
-                {
-                    sb.AppendLine($"        <format>{WebUtility.HtmlEncode(st.Codec)}</format>");
-                }
-
-                if (!string.IsNullOrWhiteSpace(st.Title ?? st.DisplayTitle))
-                {
-                    sb.AppendLine($"        <title>{WebUtility.HtmlEncode(st.DisplayTitle ?? st.Title)}</title>");
-                }
-
-                if (st.IsForced)
-                {
-                    sb.AppendLine("        <forced>true</forced>");
-                }
-
-                sb.AppendLine("      </subtitle>");
-            }
+            sb.AppendLine("    </streamdetails>");
+            sb.AppendLine("  </fileinfo>");
         }
 
-        sb.AppendLine("    </streamdetails>");
-        sb.AppendLine("  </fileinfo>");
+        if (item.Chapters != null && item.Chapters.Count > 0)
+        {
+            sb.AppendLine("  <chapters>");
+            foreach (var ch in item.Chapters)
+            {
+                sb.AppendLine("    <chapter>");
+                if (!string.IsNullOrWhiteSpace(ch.Name))
+                {
+                    sb.AppendLine($"      <name>{WebUtility.HtmlEncode(ch.Name.Trim())}</name>");
+                }
+                sb.AppendLine($"      <startpositionticks>{ch.StartPositionTicks}</startpositionticks>");
+                sb.AppendLine("    </chapter>");
+            }
+            sb.AppendLine("  </chapters>");
+        }
     }
 
     private static async Task TriggerSeerrScanAsync(HttpClient http, PluginConfiguration config, ILogger logger, CancellationToken cancellationToken)

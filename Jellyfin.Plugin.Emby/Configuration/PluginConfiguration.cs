@@ -38,6 +38,11 @@ public class PluginConfiguration : BasePluginConfiguration
         RadarrUrl = "http://radarr:7878";
         RadarrApiKey = string.Empty;
         ExcludedTmdbIds = string.Empty;
+        SyncIntervalHours = 24;
+        EnableIncrementalSync = true;
+        ApiRequestDelayMs = 50;
+        LastSyncUtc = null;
+        LastSyncItemCount = 0;
         UserAccounts = new List<EmbyUserAccountEntry>();
     }
 
@@ -77,6 +82,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public string RadarrUrl { get; set; }
     public string RadarrApiKey { get; set; }
     public string ExcludedTmdbIds { get; set; }
+
+    public int SyncIntervalHours { get; set; }
+    public bool EnableIncrementalSync { get; set; }
+    public int ApiRequestDelayMs { get; set; }
+    public DateTime? LastSyncUtc { get; set; }
+    public int LastSyncItemCount { get; set; }
 
     public List<EmbyUserAccountEntry> UserAccounts { get; set; }
 
