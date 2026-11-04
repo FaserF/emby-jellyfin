@@ -93,9 +93,7 @@ public class EmbyMediaSourceProvider : IMediaSourceProvider, IHasOrder
             foreach (var embySource in embySources)
             {
                 var container = !string.IsNullOrWhiteSpace(embySource.Container) ? embySource.Container : "mkv";
-                var isDirectPlayContainer = string.Equals(container, "mp4", StringComparison.OrdinalIgnoreCase) ||
-                                            string.Equals(container, "m4v", StringComparison.OrdinalIgnoreCase) ||
-                                            string.Equals(container, "webm", StringComparison.OrdinalIgnoreCase);
+                var isDirectPlayContainer = true;
 
                 var streamUrl = config.UseDirectEmbyStreamUrls
                     ? client.GetDirectStreamUrl(baseUrl, embyId, token)
@@ -133,8 +131,6 @@ public class EmbyMediaSourceProvider : IMediaSourceProvider, IHasOrder
                                 AspectRatio = es.AspectRatio,
                                 Language = es.Language,
                                 Title = videoTitle,
-                                DisplayTitle = es.DisplayTitle,
-                                DisplayLanguage = es.DisplayLanguage ?? es.Language,
                                 IsDefault = es.IsDefault || streams.All(s => s.Type != MediaStreamType.Video)
                             });
                         }
@@ -171,8 +167,6 @@ public class EmbyMediaSourceProvider : IMediaSourceProvider, IHasOrder
                                 BitRate = es.BitRate ?? 192000,
                                 Language = es.Language ?? "und",
                                 Title = audioTitle ?? "Audio",
-                                DisplayTitle = es.DisplayTitle,
-                                DisplayLanguage = es.DisplayLanguage ?? es.Language,
                                 IsDefault = es.IsDefault
                             });
                         }
@@ -198,8 +192,6 @@ public class EmbyMediaSourceProvider : IMediaSourceProvider, IHasOrder
                                 Codec = !string.IsNullOrWhiteSpace(es.Codec) ? es.Codec : "subrip",
                                 Language = es.Language ?? "und",
                                 Title = es.DisplayTitle ?? es.Title ?? (es.Language != null ? $"{es.Language.ToUpperInvariant()} (Subtitle)" : "Subtitle"),
-                                DisplayTitle = es.DisplayTitle,
-                                DisplayLanguage = es.DisplayLanguage ?? es.Language,
                                 IsDefault = es.IsDefault,
                                 IsForced = es.IsForced,
                                 IsExternal = isExt,
@@ -314,8 +306,6 @@ public class EmbyMediaSourceProvider : IMediaSourceProvider, IHasOrder
                 SampleRate = s.SampleRate,
                 Language = s.Language,
                 Title = s.Title,
-                DisplayTitle = s.DisplayTitle,
-                DisplayLanguage = s.DisplayLanguage,
                 IsDefault = s.IsDefault,
                 IsForced = s.IsForced,
                 IsExternal = s.IsExternal,

@@ -657,7 +657,7 @@ public class SyncEmbyLibraryTask : IScheduledTask
         return ignored;
     }
 
-    private static bool IsIgnored(EmbyItem item, HashSet<string> ignored)
+    private static bool IsIgnored(EmbyItemDto item, HashSet<string> ignored)
     {
         if (ignored.Count == 0)
         {
