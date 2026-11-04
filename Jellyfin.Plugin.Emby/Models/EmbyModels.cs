@@ -192,6 +192,9 @@ public class EmbyMediaStreamDto
 
     [JsonPropertyName("IsForced")]
     public bool IsForced { get; set; }
+
+    [JsonPropertyName("IsExternal")]
+    public bool IsExternal { get; set; }
 }
 
 public class EmbyUserDataDto

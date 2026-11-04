@@ -26,9 +26,10 @@ public class EmbyPluginFullParityTests
         config.EnableLibraryFederation.Should().BeTrue();
         config.EnableMoviesFederation.Should().BeTrue();
         config.EnableSeriesFederation.Should().BeTrue();
-        config.AttachToExistingLibraries.Should().BeTrue();
-        config.TargetMoviesLibraryName.Should().Be("Filme");
-        config.TargetSeriesLibraryName.Should().Be("Serien");
+        config.AttachToExistingLibraries.Should().BeFalse();
+        config.TargetMoviesLibraryName.Should().Be("Filme (Emby)");
+        config.TargetSeriesLibraryName.Should().Be("Serien (Emby)");
+        config.CreateDedicatedEmbyLibraries.Should().BeTrue();
         config.StrmLibraryPath.Should().Be("/data/emby");
         config.UseDirectEmbyStreamUrls.Should().BeTrue();
 

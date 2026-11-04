@@ -471,7 +471,17 @@ public class SyncEmbyLibraryTask : IScheduledTask
                     sb.AppendLine($"        <language>{WebUtility.HtmlEncode(st.Language)}</language>");
                 }
 
+                if (!string.IsNullOrWhiteSpace(st.Title ?? st.DisplayTitle))
+                {
+                    sb.AppendLine($"        <title>{WebUtility.HtmlEncode(st.DisplayTitle ?? st.Title)}</title>");
+                }
+
                 sb.AppendLine($"        <channels>{st.Channels ?? 2}</channels>");
+                if (st.BitRate.HasValue)
+                {
+                    sb.AppendLine($"        <bitrate>{st.BitRate.Value}</bitrate>");
+                }
+
                 sb.AppendLine("      </audio>");
             }
             else if (string.Equals(st.Type, "Subtitle", StringComparison.OrdinalIgnoreCase))
@@ -480,6 +490,21 @@ public class SyncEmbyLibraryTask : IScheduledTask
                 if (!string.IsNullOrWhiteSpace(st.Language))
                 {
                     sb.AppendLine($"        <language>{WebUtility.HtmlEncode(st.Language)}</language>");
+                }
+
+                if (!string.IsNullOrWhiteSpace(st.Codec))
+                {
+                    sb.AppendLine($"        <format>{WebUtility.HtmlEncode(st.Codec)}</format>");
+                }
+
+                if (!string.IsNullOrWhiteSpace(st.Title ?? st.DisplayTitle))
+                {
+                    sb.AppendLine($"        <title>{WebUtility.HtmlEncode(st.DisplayTitle ?? st.Title)}</title>");
+                }
+
+                if (st.IsForced)
+                {
+                    sb.AppendLine("        <forced>true</forced>");
                 }
 
                 sb.AppendLine("      </subtitle>");

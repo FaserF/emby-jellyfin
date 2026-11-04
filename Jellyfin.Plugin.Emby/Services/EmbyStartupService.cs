@@ -270,28 +270,60 @@ public class EmbyStartupService : IHostedService
 
             if (config.CreateDedicatedEmbyLibraries)
             {
-                if (config.EnableMoviesFederation && !vfs.Any(v => string.Equals(v.Name, "Emby Movies", StringComparison.OrdinalIgnoreCase)))
+                var moviesLibName = !string.IsNullOrWhiteSpace(config.TargetMoviesLibraryName) ? config.TargetMoviesLibraryName : "Filme (Emby)";
+                var seriesLibName = !string.IsNullOrWhiteSpace(config.TargetSeriesLibraryName) ? config.TargetSeriesLibraryName : "Serien (Emby)";
+
+                // Detach from legacy default libraries if present
+                var legacyMoviesVf = vfs.FirstOrDefault(v => string.Equals(v.Name, "Filme", StringComparison.OrdinalIgnoreCase));
+                if (legacyMoviesVf != null && legacyMoviesVf.Locations != null && legacyMoviesVf.Locations.Contains(moviesDir))
+                {
+                    try
+                    {
+                        _libraryManager.RemoveMediaPath(legacyMoviesVf.Name, moviesDir);
+                        _logger.LogInformation("Detached {Path} from legacy library '{Library}'", moviesDir, legacyMoviesVf.Name);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Could not detach from legacy movies library");
+                    }
+                }
+
+                var legacySeriesVf = vfs.FirstOrDefault(v => string.Equals(v.Name, "Serien", StringComparison.OrdinalIgnoreCase));
+                if (legacySeriesVf != null && legacySeriesVf.Locations != null && legacySeriesVf.Locations.Contains(tvDir))
+                {
+                    try
+                    {
+                        _libraryManager.RemoveMediaPath(legacySeriesVf.Name, tvDir);
+                        _logger.LogInformation("Detached {Path} from legacy library '{Library}'", tvDir, legacySeriesVf.Name);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Could not detach from legacy series library");
+                    }
+                }
+
+                if (config.EnableMoviesFederation && !vfs.Any(v => string.Equals(v.Name, moviesLibName, StringComparison.OrdinalIgnoreCase)))
                 {
                     var opts = new LibraryOptions
                     {
-                        EnableInternetProviders = true,
                         EnableRealtimeMonitor = false,
                         SaveLocalMetadata = false,
                         PathInfos = new[] { new MediaPathInfo { Path = moviesDir } }
                     };
-                    await _libraryManager.AddVirtualFolder("Emby Movies", CollectionTypeOptions.movies, opts, true).ConfigureAwait(false);
+                    await _libraryManager.AddVirtualFolder(moviesLibName, CollectionTypeOptions.movies, opts, true).ConfigureAwait(false);
+                    _logger.LogInformation("Created dedicated Jellyfin library '{Library}' pointing to {Path}", moviesLibName, moviesDir);
                 }
 
-                if (config.EnableSeriesFederation && !vfs.Any(v => string.Equals(v.Name, "Emby Series", StringComparison.OrdinalIgnoreCase)))
+                if (config.EnableSeriesFederation && !vfs.Any(v => string.Equals(v.Name, seriesLibName, StringComparison.OrdinalIgnoreCase)))
                 {
                     var opts = new LibraryOptions
                     {
-                        EnableInternetProviders = true,
                         EnableRealtimeMonitor = false,
                         SaveLocalMetadata = false,
                         PathInfos = new[] { new MediaPathInfo { Path = tvDir } }
                     };
-                    await _libraryManager.AddVirtualFolder("Emby Series", CollectionTypeOptions.tvshows, opts, true).ConfigureAwait(false);
+                    await _libraryManager.AddVirtualFolder(seriesLibName, CollectionTypeOptions.tvshows, opts, true).ConfigureAwait(false);
+                    _logger.LogInformation("Created dedicated Jellyfin library '{Library}' pointing to {Path}", seriesLibName, tvDir);
                 }
             }
 

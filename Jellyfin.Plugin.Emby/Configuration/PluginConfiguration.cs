@@ -19,10 +19,10 @@ public class PluginConfiguration : BasePluginConfiguration
         EnableLibraryFederation = true;
         EnableMoviesFederation = true;
         EnableSeriesFederation = true;
-        AttachToExistingLibraries = true;
-        TargetMoviesLibraryName = "Filme";
-        TargetSeriesLibraryName = "Serien";
-        CreateDedicatedEmbyLibraries = false;
+        AttachToExistingLibraries = false;
+        TargetMoviesLibraryName = "Filme (Emby)";
+        TargetSeriesLibraryName = "Serien (Emby)";
+        CreateDedicatedEmbyLibraries = true;
         StrmLibraryPath = "/data/emby";
         PublicServerUrl = string.Empty;
         UseDirectEmbyStreamUrls = true;

@@ -110,6 +110,20 @@ public class EmbyMediaSourceProvider : IMediaSourceProvider, IHasOrder
                             defaultAudioIdx = curIdx;
                         }
 
+                        var channelDesc = es.Channels switch
+                        {
+                            1 => "Mono",
+                            2 => "Stereo 2.0",
+                            6 => "5.1 Surround",
+                            8 => "7.1 Surround",
+                            _ => es.Channels.HasValue ? $"{es.Channels}ch" : ""
+                        };
+                        var audioTitle = es.DisplayTitle ?? es.Title;
+                        if (string.IsNullOrWhiteSpace(audioTitle) && !string.IsNullOrWhiteSpace(es.Language))
+                        {
+                            audioTitle = $"{es.Language.ToUpperInvariant()} ({es.Codec?.ToUpperInvariant() ?? "Audio"} {channelDesc})".Trim();
+                        }
+
                         streams.Add(new MediaStream
                         {
                             Type = MediaStreamType.Audio,
@@ -119,21 +133,29 @@ public class EmbyMediaSourceProvider : IMediaSourceProvider, IHasOrder
                             SampleRate = es.SampleRate ?? 48000,
                             BitRate = es.BitRate ?? 192000,
                             Language = es.Language ?? "und",
-                            Title = es.DisplayTitle ?? es.Title ?? "Audio",
+                            Title = audioTitle ?? "Audio",
                             IsDefault = es.IsDefault
                         });
                     }
                     else if (string.Equals(es.Type, "Subtitle", StringComparison.OrdinalIgnoreCase))
                     {
+                        var isExt = es.IsExternal;
+                        var subUrl = isExt && embySource != null
+                            ? $"{baseUrl.TrimEnd('/')}/emby/Videos/{embyId}/{embySource.Id}/Subtitles/{es.Index}/Stream.{es.Codec ?? "srt"}?api_key={token}"
+                            : null;
+
                         streams.Add(new MediaStream
                         {
                             Type = MediaStreamType.Subtitle,
                             Index = idx++,
                             Codec = !string.IsNullOrWhiteSpace(es.Codec) ? es.Codec : "subrip",
                             Language = es.Language ?? "und",
-                            Title = es.DisplayTitle ?? es.Title ?? "Subtitle",
+                            Title = es.DisplayTitle ?? es.Title ?? (es.Language != null ? $"{es.Language.ToUpperInvariant()} (Subtitle)" : "Subtitle"),
                             IsDefault = es.IsDefault,
-                            IsForced = es.IsForced
+                            IsForced = es.IsForced,
+                            IsExternal = isExt,
+                            DeliveryMethod = isExt ? MediaBrowser.Model.Dlna.SubtitleDeliveryMethod.External : MediaBrowser.Model.Dlna.SubtitleDeliveryMethod.Embed,
+                            DeliveryUrl = subUrl
                         });
                     }
                 }
@@ -174,7 +196,7 @@ public class EmbyMediaSourceProvider : IMediaSourceProvider, IHasOrder
                 SupportsDirectPlay = true,
                 SupportsDirectStream = true,
                 SupportsTranscoding = true,
-                SupportsProbing = true,
+                SupportsProbing = false,
                 DefaultAudioStreamIndex = defaultAudioIdx,
                 RunTimeTicks = embySource?.RunTimeTicks ?? embyItem?.RunTimeTicks ?? item.RunTimeTicks,
                 MediaStreams = streams
