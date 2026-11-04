@@ -17,7 +17,8 @@ namespace Jellyfin.Plugin.Emby.Providers;
 /// <summary>
 /// Dynamic MediaSource provider for federated Emby .strm and library items.
 /// Supplies pre-populated Video, Audio, and Subtitle MediaStreams directly from the peer Emby API
-/// so clients (Web, Android TV, Fire TV, Mobile) start playback immediately without FFmpeg probing delays.
+/// so clients (Web, Android TV, Fire TV, Mobile) start playback immediately with full quality,
+/// language, and subtitle track selection without FFmpeg probing delays.
 /// </summary>
 public class EmbyMediaSourceProvider : IMediaSourceProvider, IHasOrder
 {
@@ -27,7 +28,7 @@ public class EmbyMediaSourceProvider : IMediaSourceProvider, IHasOrder
 
     public int Order => -100;
 
-    private static readonly ConcurrentDictionary<string, (MediaSourceInfo Source, DateTime CachedAt)> _sourceCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, (IReadOnlyList<MediaSourceInfo> Sources, DateTime CachedAt)> _sourceCache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(20);
 
     public EmbyMediaSourceProvider(
@@ -56,7 +57,7 @@ public class EmbyMediaSourceProvider : IMediaSourceProvider, IHasOrder
         var cacheKey = $"emby_{embyId}";
         if (_sourceCache.TryGetValue(cacheKey, out var cached) && DateTime.UtcNow - cached.CachedAt < CacheTtl)
         {
-            return new[] { CloneMediaSource(cached.Source, item.Id.ToString("N")) };
+            return cached.Sources.Select((s, i) => CloneMediaSource(s, i == 0 ? item.Id.ToString("N") : $"{item.Id:N}_{i}")).ToList();
         }
 
         try
@@ -73,141 +74,200 @@ public class EmbyMediaSourceProvider : IMediaSourceProvider, IHasOrder
             }
 
             var embyItem = await client.GetItemAsync(embyId, null, cancellationToken).ConfigureAwait(false);
-            var embySource = embyItem?.MediaSources?.FirstOrDefault();
-            var container = !string.IsNullOrWhiteSpace(embySource?.Container) ? embySource!.Container! : "mkv";
+            var embySources = embyItem?.MediaSources != null && embyItem.MediaSources.Count > 0
+                ? embyItem.MediaSources
+                : new List<EmbyMediaSourceDto>();
 
-            var streamUrl = config.UseDirectEmbyStreamUrls
-                ? client.GetDirectStreamUrl(baseUrl, embyId, token)
-                : $"http://127.0.0.1:8096/api/embyPlugin/stream/{embyId}/stream.{container}";
-
-            var streams = new List<MediaStream>();
-            int? defaultAudioIdx = null;
-            if (embySource?.MediaStreams != null && embySource.MediaStreams.Count > 0)
+            if (embySources.Count == 0)
             {
-                var idx = 0;
-                foreach (var es in embySource.MediaStreams)
+                embySources.Add(new EmbyMediaSourceDto
                 {
-                    if (string.Equals(es.Type, "Video", StringComparison.OrdinalIgnoreCase))
+                    Id = embyId,
+                    Container = "mkv"
+                });
+            }
+
+            var resultSources = new List<MediaSourceInfo>();
+            var sourceIndex = 0;
+
+            foreach (var embySource in embySources)
+            {
+                var container = !string.IsNullOrWhiteSpace(embySource.Container) ? embySource.Container : "mkv";
+                var isDirectPlayContainer = string.Equals(container, "mp4", StringComparison.OrdinalIgnoreCase) ||
+                                            string.Equals(container, "m4v", StringComparison.OrdinalIgnoreCase) ||
+                                            string.Equals(container, "webm", StringComparison.OrdinalIgnoreCase);
+
+                var streamUrl = config.UseDirectEmbyStreamUrls
+                    ? client.GetDirectStreamUrl(baseUrl, embyId, token)
+                    : $"http://127.0.0.1:8096/api/embyPlugin/stream/{embyId}/stream.{container}";
+
+                if (sourceIndex > 0 && !string.IsNullOrWhiteSpace(embySource.Id))
+                {
+                    streamUrl = $"{baseUrl.TrimEnd('/')}/emby/Videos/{Uri.EscapeDataString(embyId)}/stream?static=true&MediaSourceId={Uri.EscapeDataString(embySource.Id)}&api_key={Uri.EscapeDataString(token)}";
+                }
+
+                var streams = new List<MediaStream>();
+                int? defaultAudioIdx = null;
+                int? defaultSubIdx = null;
+
+                if (embySource.MediaStreams != null && embySource.MediaStreams.Count > 0)
+                {
+                    foreach (var es in embySource.MediaStreams)
                     {
-                        streams.Add(new MediaStream
+                        if (string.Equals(es.Type, "Video", StringComparison.OrdinalIgnoreCase))
                         {
-                            Type = MediaStreamType.Video,
-                            Index = idx++,
-                            Codec = !string.IsNullOrWhiteSpace(es.Codec) ? es.Codec : "h264",
-                            Width = es.Width ?? 1920,
-                            Height = es.Height ?? 1080,
-                            BitRate = es.BitRate ?? 8000000,
-                            Language = es.Language,
-                            Title = es.DisplayTitle ?? es.Title ?? "Emby Video",
-                            IsDefault = true
-                        });
-                    }
-                    else if (string.Equals(es.Type, "Audio", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var curIdx = idx++;
-                        if (defaultAudioIdx == null || es.IsDefault)
-                        {
-                            defaultAudioIdx = curIdx;
+                            var videoTitle = es.DisplayTitle ?? es.Title ?? $"{es.Height ?? 1080}p {(es.Codec ?? "H264").ToUpperInvariant()}";
+                            streams.Add(new MediaStream
+                            {
+                                Type = MediaStreamType.Video,
+                                Index = es.Index,
+                                Codec = !string.IsNullOrWhiteSpace(es.Codec) ? es.Codec : "h264",
+                                Width = es.Width ?? 1920,
+                                Height = es.Height ?? 1080,
+                                BitRate = es.BitRate ?? embySource.Bitrate ?? 8000000,
+                                AverageFrameRate = es.AverageFrameRate,
+                                RealFrameRate = es.RealFrameRate,
+                                Profile = es.Profile,
+                                Level = es.Level,
+                                PixelFormat = es.PixelFormat,
+                                AspectRatio = es.AspectRatio,
+                                Language = es.Language,
+                                Title = videoTitle,
+                                DisplayTitle = es.DisplayTitle,
+                                DisplayLanguage = es.DisplayLanguage ?? es.Language,
+                                IsDefault = es.IsDefault || streams.All(s => s.Type != MediaStreamType.Video)
+                            });
                         }
+                        else if (string.Equals(es.Type, "Audio", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (defaultAudioIdx == null || es.IsDefault)
+                            {
+                                defaultAudioIdx = es.Index;
+                            }
 
-                        var channelDesc = es.Channels switch
-                        {
-                            1 => "Mono",
-                            2 => "Stereo 2.0",
-                            6 => "5.1 Surround",
-                            8 => "7.1 Surround",
-                            _ => es.Channels.HasValue ? $"{es.Channels}ch" : ""
-                        };
-                        var audioTitle = es.DisplayTitle ?? es.Title;
-                        if (string.IsNullOrWhiteSpace(audioTitle) && !string.IsNullOrWhiteSpace(es.Language))
-                        {
-                            audioTitle = $"{es.Language.ToUpperInvariant()} ({es.Codec?.ToUpperInvariant() ?? "Audio"} {channelDesc})".Trim();
+                            var channelDesc = es.Channels switch
+                            {
+                                1 => "Mono",
+                                2 => "Stereo 2.0",
+                                6 => "5.1 Surround",
+                                8 => "7.1 Surround",
+                                _ => es.Channels.HasValue ? $"{es.Channels}ch" : ""
+                            };
+                            var audioTitle = es.DisplayTitle ?? es.Title;
+                            if (string.IsNullOrWhiteSpace(audioTitle) && !string.IsNullOrWhiteSpace(es.Language))
+                            {
+                                audioTitle = $"{es.Language.ToUpperInvariant()} ({es.Codec?.ToUpperInvariant() ?? "Audio"} {channelDesc})".Trim();
+                            }
+
+                            streams.Add(new MediaStream
+                            {
+                                Type = MediaStreamType.Audio,
+                                Index = es.Index,
+                                Codec = !string.IsNullOrWhiteSpace(es.Codec) ? es.Codec : "aac",
+                                Channels = es.Channels ?? 2,
+                                ChannelLayout = es.ChannelLayout,
+                                Profile = es.Profile,
+                                SampleRate = es.SampleRate ?? 48000,
+                                BitRate = es.BitRate ?? 192000,
+                                Language = es.Language ?? "und",
+                                Title = audioTitle ?? "Audio",
+                                DisplayTitle = es.DisplayTitle,
+                                DisplayLanguage = es.DisplayLanguage ?? es.Language,
+                                IsDefault = es.IsDefault
+                            });
                         }
-
-                        streams.Add(new MediaStream
+                        else if (string.Equals(es.Type, "Subtitle", StringComparison.OrdinalIgnoreCase))
                         {
-                            Type = MediaStreamType.Audio,
-                            Index = curIdx,
-                            Codec = !string.IsNullOrWhiteSpace(es.Codec) ? es.Codec : "aac",
-                            Channels = es.Channels ?? 2,
-                            SampleRate = es.SampleRate ?? 48000,
-                            BitRate = es.BitRate ?? 192000,
-                            Language = es.Language ?? "und",
-                            Title = audioTitle ?? "Audio",
-                            IsDefault = es.IsDefault
-                        });
-                    }
-                    else if (string.Equals(es.Type, "Subtitle", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var isExt = es.IsExternal;
-                        var subUrl = isExt && embySource != null
-                            ? $"{baseUrl.TrimEnd('/')}/emby/Videos/{embyId}/{embySource.Id}/Subtitles/{es.Index}/Stream.{es.Codec ?? "srt"}?api_key={token}"
-                            : null;
+                            if (defaultSubIdx == null && es.IsDefault)
+                            {
+                                defaultSubIdx = es.Index;
+                            }
 
-                        streams.Add(new MediaStream
-                        {
-                            Type = MediaStreamType.Subtitle,
-                            Index = idx++,
-                            Codec = !string.IsNullOrWhiteSpace(es.Codec) ? es.Codec : "subrip",
-                            Language = es.Language ?? "und",
-                            Title = es.DisplayTitle ?? es.Title ?? (es.Language != null ? $"{es.Language.ToUpperInvariant()} (Subtitle)" : "Subtitle"),
-                            IsDefault = es.IsDefault,
-                            IsForced = es.IsForced,
-                            IsExternal = isExt,
-                            DeliveryMethod = isExt ? MediaBrowser.Model.Dlna.SubtitleDeliveryMethod.External : MediaBrowser.Model.Dlna.SubtitleDeliveryMethod.Embed,
-                            DeliveryUrl = subUrl
-                        });
+                            var isExt = es.IsExternal;
+                            var subUrl = $"{baseUrl.TrimEnd('/')}/emby/Videos/{Uri.EscapeDataString(embyId)}/{Uri.EscapeDataString(embySource.Id ?? embyId)}/Subtitles/{es.Index}/Stream.{es.Codec ?? "srt"}?api_key={Uri.EscapeDataString(token)}";
+
+                            var isTextSub = es.IsTextSubtitleStream ||
+                                            string.Equals(es.Codec, "subrip", StringComparison.OrdinalIgnoreCase) ||
+                                            string.Equals(es.Codec, "srt", StringComparison.OrdinalIgnoreCase) ||
+                                            string.Equals(es.Codec, "vtt", StringComparison.OrdinalIgnoreCase);
+
+                            streams.Add(new MediaStream
+                            {
+                                Type = MediaStreamType.Subtitle,
+                                Index = es.Index,
+                                Codec = !string.IsNullOrWhiteSpace(es.Codec) ? es.Codec : "subrip",
+                                Language = es.Language ?? "und",
+                                Title = es.DisplayTitle ?? es.Title ?? (es.Language != null ? $"{es.Language.ToUpperInvariant()} (Subtitle)" : "Subtitle"),
+                                DisplayTitle = es.DisplayTitle,
+                                DisplayLanguage = es.DisplayLanguage ?? es.Language,
+                                IsDefault = es.IsDefault,
+                                IsForced = es.IsForced,
+                                IsExternal = isExt,
+                                DeliveryMethod = isExt || isTextSub
+                                    ? MediaBrowser.Model.Dlna.SubtitleDeliveryMethod.External
+                                    : MediaBrowser.Model.Dlna.SubtitleDeliveryMethod.Embed,
+                                DeliveryUrl = subUrl
+                            });
+                        }
                     }
                 }
+
+                if (streams.Count == 0)
+                {
+                    streams.Add(new MediaStream
+                    {
+                        Type = MediaStreamType.Video,
+                        Index = 0,
+                        Codec = "h264",
+                        Width = 1920,
+                        Height = 1080,
+                        BitRate = embySource.Bitrate ?? 8000000,
+                        IsDefault = true
+                    });
+                    streams.Add(new MediaStream
+                    {
+                        Type = MediaStreamType.Audio,
+                        Index = 1,
+                        Codec = "aac",
+                        Channels = 2,
+                        Language = "und",
+                        Title = "Stereo 2.0",
+                        IsDefault = true
+                    });
+                    defaultAudioIdx = 1;
+                }
+
+                var sourceId = sourceIndex == 0 ? item.Id.ToString("N") : $"{item.Id:N}_{sourceIndex}";
+                var sourceName = !string.IsNullOrWhiteSpace(embySource.Name)
+                    ? embySource.Name
+                    : $"{item.Name} ({container.ToUpperInvariant()})";
+
+                var source = new MediaSourceInfo
+                {
+                    Id = sourceId,
+                    Name = sourceName,
+                    Path = streamUrl,
+                    Protocol = MediaProtocol.Http,
+                    Container = container,
+                    Size = embySource.Size,
+                    Bitrate = embySource.Bitrate,
+                    IsRemote = true,
+                    SupportsDirectPlay = isDirectPlayContainer,
+                    SupportsDirectStream = true,
+                    SupportsTranscoding = true,
+                    SupportsProbing = false,
+                    DefaultAudioStreamIndex = defaultAudioIdx,
+                    DefaultSubtitleStreamIndex = defaultSubIdx,
+                    RunTimeTicks = embySource.RunTimeTicks ?? embyItem?.RunTimeTicks ?? item.RunTimeTicks,
+                    MediaStreams = streams
+                };
+
+                resultSources.Add(source);
+                sourceIndex++;
             }
 
-            if (streams.Count == 0)
-            {
-                streams.Add(new MediaStream
-                {
-                    Type = MediaStreamType.Video,
-                    Index = 0,
-                    Codec = "h264",
-                    Width = 1920,
-                    Height = 1080,
-                    IsDefault = true
-                });
-                streams.Add(new MediaStream
-                {
-                    Type = MediaStreamType.Audio,
-                    Index = 1,
-                    Codec = "aac",
-                    Channels = 2,
-                    IsDefault = true
-                });
-                defaultAudioIdx = 1;
-            }
-
-            var isDirectPlayContainer = string.Equals(container, "mp4", StringComparison.OrdinalIgnoreCase) ||
-                                        string.Equals(container, "m4v", StringComparison.OrdinalIgnoreCase) ||
-                                        string.Equals(container, "webm", StringComparison.OrdinalIgnoreCase);
-
-            var source = new MediaSourceInfo
-            {
-                Id = item.Id.ToString("N"),
-                Name = $"{item.Name} (Emby Stream)",
-                Path = streamUrl,
-                Protocol = MediaProtocol.Http,
-                Container = container,
-                Size = embySource?.Size,
-                Bitrate = embySource?.Bitrate,
-                IsRemote = true,
-                SupportsDirectPlay = isDirectPlayContainer,
-                SupportsDirectStream = true,
-                SupportsTranscoding = true,
-                SupportsProbing = false,
-                DefaultAudioStreamIndex = defaultAudioIdx,
-                RunTimeTicks = embySource?.RunTimeTicks ?? embyItem?.RunTimeTicks ?? item.RunTimeTicks,
-                MediaStreams = streams
-            };
-
-            _sourceCache[cacheKey] = (source, DateTime.UtcNow);
-            return new[] { CloneMediaSource(source, item.Id.ToString("N")) };
+            _sourceCache[cacheKey] = (resultSources, DateTime.UtcNow);
+            return resultSources.Select((s, i) => CloneMediaSource(s, i == 0 ? item.Id.ToString("N") : $"{item.Id:N}_{i}")).ToList();
         }
         catch (Exception ex)
         {
@@ -243,12 +303,24 @@ public class EmbyMediaSourceProvider : IMediaSourceProvider, IHasOrder
                 Width = s.Width,
                 Height = s.Height,
                 BitRate = s.BitRate,
+                AverageFrameRate = s.AverageFrameRate,
+                RealFrameRate = s.RealFrameRate,
+                Profile = s.Profile,
+                Level = s.Level,
+                PixelFormat = s.PixelFormat,
+                AspectRatio = s.AspectRatio,
                 Channels = s.Channels,
+                ChannelLayout = s.ChannelLayout,
                 SampleRate = s.SampleRate,
                 Language = s.Language,
                 Title = s.Title,
+                DisplayTitle = s.DisplayTitle,
+                DisplayLanguage = s.DisplayLanguage,
                 IsDefault = s.IsDefault,
-                IsForced = s.IsForced
+                IsForced = s.IsForced,
+                IsExternal = s.IsExternal,
+                DeliveryMethod = s.DeliveryMethod,
+                DeliveryUrl = s.DeliveryUrl
             }).ToList()
         };
     }

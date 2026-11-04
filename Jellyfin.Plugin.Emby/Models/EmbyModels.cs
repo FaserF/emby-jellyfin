@@ -195,6 +195,48 @@ public class EmbyMediaStreamDto
 
     [JsonPropertyName("IsExternal")]
     public bool IsExternal { get; set; }
+
+    [JsonPropertyName("DisplayLanguage")]
+    public string? DisplayLanguage { get; set; }
+
+    [JsonPropertyName("ChannelLayout")]
+    public string? ChannelLayout { get; set; }
+
+    [JsonPropertyName("Profile")]
+    public string? Profile { get; set; }
+
+    [JsonPropertyName("Level")]
+    public double? Level { get; set; }
+
+    [JsonPropertyName("PixelFormat")]
+    public string? PixelFormat { get; set; }
+
+    [JsonPropertyName("AspectRatio")]
+    public string? AspectRatio { get; set; }
+
+    [JsonPropertyName("VideoRange")]
+    public string? VideoRange { get; set; }
+
+    [JsonPropertyName("AverageFrameRate")]
+    public float? AverageFrameRate { get; set; }
+
+    [JsonPropertyName("RealFrameRate")]
+    public float? RealFrameRate { get; set; }
+
+    [JsonPropertyName("BitDepth")]
+    public int? BitDepth { get; set; }
+
+    [JsonPropertyName("IsInterlaced")]
+    public bool IsInterlaced { get; set; }
+
+    [JsonPropertyName("IsHearingImpaired")]
+    public bool IsHearingImpaired { get; set; }
+
+    [JsonPropertyName("IsTextSubtitleStream")]
+    public bool IsTextSubtitleStream { get; set; }
+
+    [JsonPropertyName("SupportsExternalStream")]
+    public bool SupportsExternalStream { get; set; }
 }
 
 public class EmbyUserDataDto

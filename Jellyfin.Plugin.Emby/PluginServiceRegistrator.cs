@@ -3,6 +3,7 @@ using Jellyfin.Plugin.Emby.Services;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Plugins;
+using MediaBrowser.Controller.Providers;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Jellyfin.Plugin.Emby;
@@ -14,5 +15,6 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddHttpClient("Emby");
         serviceCollection.AddHostedService<EmbyStartupService>();
         serviceCollection.AddSingleton<IMediaSourceProvider, EmbyMediaSourceProvider>();
+        serviceCollection.AddSingleton<IExternalUrlProvider, EmbyExternalUrlProvider>();
     }
 }

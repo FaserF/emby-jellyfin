@@ -312,8 +312,16 @@ public class SyncEmbyLibraryTask : IScheduledTask
             sb.AppendLine($"  <year>{item.ProductionYear.Value}</year>");
         }
 
-        var overview = EmbyApiClient.FormatRichOverview(item, baseUrl, serverId);
-        sb.AppendLine($"  <plot>{WebUtility.HtmlEncode(overview)}</plot>");
+        var effSrv = !string.IsNullOrWhiteSpace(item.ServerId) ? item.ServerId : serverId;
+        var webLink = $"{baseUrl.TrimEnd('/')}/web/index.html#!/item?id={Uri.EscapeDataString(item.Id)}&serverId={Uri.EscapeDataString(effSrv)}";
+
+        if (!string.IsNullOrWhiteSpace(item.Overview))
+        {
+            sb.AppendLine($"  <plot>{WebUtility.HtmlEncode(item.Overview.Trim())}</plot>");
+        }
+
+        sb.AppendLine($"  <website>{WebUtility.HtmlEncode(webLink)}</website>");
+        sb.AppendLine($"  <homepage>{WebUtility.HtmlEncode(webLink)}</homepage>");
 
         if (item.GetProviderId("Tmdb") is { } tmdb)
         {
@@ -361,8 +369,16 @@ public class SyncEmbyLibraryTask : IScheduledTask
             sb.AppendLine($"  <year>{item.ProductionYear.Value}</year>");
         }
 
-        var overview = EmbyApiClient.FormatRichOverview(item, baseUrl, serverId);
-        sb.AppendLine($"  <plot>{WebUtility.HtmlEncode(overview)}</plot>");
+        var effSrv = !string.IsNullOrWhiteSpace(item.ServerId) ? item.ServerId : serverId;
+        var webLink = $"{baseUrl.TrimEnd('/')}/web/index.html#!/item?id={Uri.EscapeDataString(item.Id)}&serverId={Uri.EscapeDataString(effSrv)}";
+
+        if (!string.IsNullOrWhiteSpace(item.Overview))
+        {
+            sb.AppendLine($"  <plot>{WebUtility.HtmlEncode(item.Overview.Trim())}</plot>");
+        }
+
+        sb.AppendLine($"  <website>{WebUtility.HtmlEncode(webLink)}</website>");
+        sb.AppendLine($"  <homepage>{WebUtility.HtmlEncode(webLink)}</homepage>");
 
         if (item.GetProviderId("Tvdb") is { } tvdb)
         {
