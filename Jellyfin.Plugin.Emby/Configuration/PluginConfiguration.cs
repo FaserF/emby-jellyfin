@@ -37,6 +37,7 @@ public class PluginConfiguration : BasePluginConfiguration
         SonarrApiKey = string.Empty;
         RadarrUrl = "http://radarr:7878";
         RadarrApiKey = string.Empty;
+        ExcludedTmdbIds = string.Empty;
         UserAccounts = new List<EmbyUserAccountEntry>();
     }
 
@@ -75,6 +76,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public string SonarrApiKey { get; set; }
     public string RadarrUrl { get; set; }
     public string RadarrApiKey { get; set; }
+    public string ExcludedTmdbIds { get; set; }
 
     public List<EmbyUserAccountEntry> UserAccounts { get; set; }
 

@@ -89,6 +89,7 @@ public class SyncEmbyLibraryTask : IScheduledTask
         Directory.CreateDirectory(moviesDir);
         Directory.CreateDirectory(tvDir);
 
+        var ignored = LoadIgnoredIdentifiers(rootDir, config);
         var changes = 0;
 
         if (config.EnableMoviesFederation)
@@ -100,7 +101,7 @@ public class SyncEmbyLibraryTask : IScheduledTask
             foreach (var m in movies)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (string.IsNullOrWhiteSpace(m.Id))
+                if (string.IsNullOrWhiteSpace(m.Id) || IsIgnored(m, ignored))
                 {
                     continue;
                 }
@@ -153,7 +154,7 @@ public class SyncEmbyLibraryTask : IScheduledTask
             foreach (var s in seriesList)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (string.IsNullOrWhiteSpace(s.Id))
+                if (string.IsNullOrWhiteSpace(s.Id) || IsIgnored(s, ignored))
                 {
                     continue;
                 }
@@ -534,5 +535,74 @@ public class SyncEmbyLibraryTask : IScheduledTask
         {
             logger.LogDebug(ex, "Could not trigger Seerr scan after Emby sync");
         }
+    }
+
+    private static HashSet<string> LoadIgnoredIdentifiers(string rootDir, PluginConfiguration config)
+    {
+        var ignored = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(config.ExcludedTmdbIds))
+        {
+            foreach (var p in config.ExcludedTmdbIds.Split(new[] { ',', ';', ' ', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                ignored.Add(p.Trim());
+            }
+        }
+
+        var ignoreFilePath = Path.Combine(rootDir, ".embyignore");
+        if (File.Exists(ignoreFilePath))
+        {
+            try
+            {
+                foreach (var line in File.ReadAllLines(ignoreFilePath))
+                {
+                    var trimmed = line.Trim();
+                    if (!string.IsNullOrWhiteSpace(trimmed) && !trimmed.StartsWith('#'))
+                    {
+                        ignored.Add(trimmed);
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore read errors
+            }
+        }
+
+        return ignored;
+    }
+
+    private static bool IsIgnored(EmbyItem item, HashSet<string> ignored)
+    {
+        if (ignored.Count == 0)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(item.Id) && ignored.Contains(item.Id))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(item.Name) && ignored.Contains(item.Name))
+        {
+            return true;
+        }
+
+        if (item.GetProviderId("Tmdb") is { } tmdb && ignored.Contains(tmdb))
+        {
+            return true;
+        }
+
+        if (item.GetProviderId("Imdb") is { } imdb && ignored.Contains(imdb))
+        {
+            return true;
+        }
+
+        if (item.GetProviderId("Tvdb") is { } tvdb && ignored.Contains(tvdb))
+        {
+            return true;
+        }
+
+        return false;
     }
 }
