@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Jellyfin.Plugin.Emby.Api;
 
 namespace Jellyfin.Plugin.Emby.Models;
 
@@ -135,6 +136,12 @@ public class EmbyItemDto
 
     [JsonPropertyName("Genres")]
     public List<string>? Genres { get; set; }
+
+    [JsonPropertyName("CollectionName")]
+    public string? CollectionName { get; set; }
+
+    [JsonPropertyName("Collections")]
+    public List<EmbyCollectionRefDto>? Collections { get; set; }
 
     [JsonPropertyName("ProviderIds")]
     public Dictionary<string, string>? ProviderIds { get; set; }
@@ -344,4 +351,14 @@ public class EmbyChapterDto
 
     [JsonPropertyName("ImageTag")]
     public string? ImageTag { get; set; }
+}
+
+public class EmbyCollectionRefDto
+{
+    [JsonPropertyName("Name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("Id")]
+    [JsonConverter(typeof(FlexibleStringConverter))]
+    public string? Id { get; set; }
 }

@@ -59,7 +59,7 @@ public class SyncEmbyLibraryTask : IScheduledTask
         }
 
         using var client = new EmbyApiClient(_httpClientFactory.CreateClient("Emby"), _loggerFactory.CreateLogger<EmbyApiClient>());
-        var changes = await PerformSyncAsync(client, config, _logger, progress, cancellationToken).ConfigureAwait(false);
+        var changes = await PerformSyncAsync(client, config, _logger, progress, cancellationToken, isManual: true).ConfigureAwait(false);
         if (changes > 0)
         {
             _libraryManager.QueueLibraryScan();
@@ -103,11 +103,12 @@ public class SyncEmbyLibraryTask : IScheduledTask
         var ignored = LoadIgnoredIdentifiers(rootDir, config);
         var changes = 0;
 
-        var minDate = config.EnableIncrementalSync ? config.LastSyncUtc : null;
+        var minDate = !isManual && config.EnableIncrementalSync ? config.LastSyncUtc : null;
 
         if (config.EnableMoviesFederation)
         {
             var movies = await client.GetItemsAsync("Movie", minDateLastSaved: minDate, cancellationToken: cancellationToken).ConfigureAwait(false);
+            logger.LogInformation("Emby Federation: fetched {Count} movies (minDate: {MinDate})", movies.Count, minDate);
             if (config.ApiRequestDelayMs > 0)
             {
                 await Task.Delay(config.ApiRequestDelayMs, cancellationToken).ConfigureAwait(false);
@@ -128,12 +129,12 @@ public class SyncEmbyLibraryTask : IScheduledTask
                 var mDir = Path.Combine(moviesDir, folderName);
 
                 var streamUrl = BuildStrmContent(config, baseUrl, token, m.Id);
-                if (WriteIfChanged(Path.Combine(mDir, $"{folderName}.strm"), streamUrl))
+                if (WriteIfChanged(Path.Combine(mDir, $"{folderName}.strm"), streamUrl, logger))
                 {
                     changes++;
                 }
 
-                if (WriteIfChanged(Path.Combine(mDir, $"{folderName}.nfo"), FormatMovieNfo(m, baseUrl, serverId)))
+                if (WriteIfChanged(Path.Combine(mDir, $"{folderName}.nfo"), FormatMovieNfo(m, baseUrl, serverId), logger))
                 {
                     changes++;
                 }
@@ -155,6 +156,10 @@ public class SyncEmbyLibraryTask : IScheduledTask
                     }
                 }
             }
+
+            var colChanges = await Jellyfin.Plugin.Emby.Services.EmbyBoxSetSyncService.SyncCollectionsAsync(
+                client, baseUrl, token, movies, moviesDir, logger, cancellationToken).ConfigureAwait(false);
+            changes += colChanges;
         }
 
         progress?.Report(55);
@@ -298,7 +303,7 @@ public class SyncEmbyLibraryTask : IScheduledTask
         return cleaned.Length > 140 ? cleaned[..140].Trim() : (string.IsNullOrWhiteSpace(cleaned) ? "Unknown" : cleaned);
     }
 
-    private static bool WriteIfChanged(string path, string content)
+    public static bool WriteIfChanged(string path, string content, ILogger? logger = null)
     {
         try
         {
@@ -320,8 +325,9 @@ public class SyncEmbyLibraryTask : IScheduledTask
             File.WriteAllText(path, content, Encoding.UTF8);
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            logger?.LogWarning(ex, "Failed to write file {Path}", path);
             return false;
         }
     }
@@ -378,6 +384,18 @@ public class SyncEmbyLibraryTask : IScheduledTask
         }
 
         sb.AppendLine("  <tag>Emby-Federated</tag>");
+
+        var colName = !string.IsNullOrWhiteSpace(item.CollectionName)
+            ? item.CollectionName
+            : item.Collections?.FirstOrDefault(c => !string.IsNullOrWhiteSpace(c.Name))?.Name;
+
+        if (!string.IsNullOrWhiteSpace(colName))
+        {
+            sb.AppendLine("  <set>");
+            sb.AppendLine($"    <name>{WebUtility.HtmlEncode(colName.Trim())}</name>");
+            sb.AppendLine("  </set>");
+        }
+
         AppendFileInfoXml(sb, item);
         sb.AppendLine("</movie>");
         return sb.ToString();

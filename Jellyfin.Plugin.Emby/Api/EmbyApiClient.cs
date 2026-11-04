@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Jellyfin.Plugin.Emby.Configuration;
 using Jellyfin.Plugin.Emby.Models;
 using Microsoft.Extensions.Logging;
@@ -11,10 +12,18 @@ public sealed class EmbyApiClient : IDisposable
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<EmbyApiClient> _logger;
-    private static readonly JsonSerializerOptions JsonOpts = new()
+    private static readonly JsonSerializerOptions JsonOpts = CreateJsonOptions();
+
+    private static JsonSerializerOptions CreateJsonOptions()
     {
-        PropertyNameCaseInsensitive = true
-    };
+        var opts = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            NumberHandling = JsonNumberHandling.AllowReadingFromString
+        };
+        opts.Converters.Add(new FlexibleStringConverter());
+        return opts;
+    }
 
     public EmbyApiClient(HttpClient httpClient, ILogger<EmbyApiClient> logger)
     {
@@ -153,7 +162,7 @@ public sealed class EmbyApiClient : IDisposable
             return new List<EmbyItemDto>();
         }
 
-        var fields = "ProviderIds,ProductionYear,PremiereDate,Overview,Genres,CommunityRating,CriticRating,OfficialRating,CustomRating,RunTimeTicks,MediaSources,MediaStreams,SeriesName,SeriesId,ParentIndexNumber,IndexNumber,UserData,People,Studios,Tags,Taglines,Chapters,OriginalTitle,SortName,Status,AirDays,AirTime,DateCreated";
+        var fields = "ProviderIds,ProductionYear,PremiereDate,Overview,Genres,CommunityRating,CriticRating,OfficialRating,CustomRating,RunTimeTicks,MediaSources,MediaStreams,SeriesName,SeriesId,ParentIndexNumber,IndexNumber,UserData,People,Studios,Tags,Taglines,Chapters,OriginalTitle,SortName,Status,AirDays,AirTime,DateCreated,Collections,CollectionName";
         var sb = new StringBuilder($"{baseUrl}/emby/Users/{Uri.EscapeDataString(uid)}/Items?Recursive=true&Fields={fields}");
 
         if (minDateLastSaved.HasValue)
@@ -408,5 +417,37 @@ public sealed class EmbyApiClient : IDisposable
     public void Dispose()
     {
         _httpClient.Dispose();
+    }
+}
+
+public sealed class FlexibleStringConverter : JsonConverter<string>
+{
+    public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        switch (reader.TokenType)
+        {
+            case JsonTokenType.String:
+                return reader.GetString();
+            case JsonTokenType.Number:
+                if (reader.TryGetInt64(out var l)) return l.ToString();
+                if (reader.TryGetDouble(out var d)) return d.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                return reader.GetDecimal().ToString(System.Globalization.CultureInfo.InvariantCulture);
+            case JsonTokenType.True:
+                return "true";
+            case JsonTokenType.False:
+                return "false";
+            case JsonTokenType.Null:
+                return null;
+            default:
+            {
+                using var doc = JsonDocument.ParseValue(ref reader);
+                return doc.RootElement.GetRawText();
+            }
+        }
+    }
+
+    public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options)
+    {
+        writer.WriteStringValue(value);
     }
 }
