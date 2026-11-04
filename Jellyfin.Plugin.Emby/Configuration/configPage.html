@@ -131,12 +131,6 @@
                         <h2 class="sectionTitle">⏱️ Playhead &amp; Favorite Synchronization</h2>
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
-                                <input id="chkEnableStreamingChannel" type="checkbox" is="emby-checkbox" />
-                                <span>Enable Emby Live Channel in Jellyfin (Live browsing of remote Emby catalog)</span>
-                            </label>
-                        </div>
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
                                 <input id="chkEnablePlayheadSync" type="checkbox" is="emby-checkbox" />
                                 <span>Sync Playback Progress / Watch History with Emby</span>
                             </label>
@@ -227,7 +221,6 @@
                         page.querySelector("#txtEmbyPassword").value = config.EmbyPassword || "";
                         page.querySelector("#txtEmbyApiKey").value = config.EmbyApiKey || "";
 
-                        page.querySelector("#chkEnableStreamingChannel").checked = config.EnableStreamingChannel !== false;
                         page.querySelector("#chkEnablePublicFallback").checked = config.EnablePublicFallbackForUnlinkedUsers !== false;
                         page.querySelector("#chkEnableLibraryFederation").checked = config.EnableLibraryFederation !== false;
                         page.querySelector("#chkEnableMoviesFederation").checked = config.EnableMoviesFederation !== false;
@@ -313,7 +306,6 @@
                         config.EmbyPassword = page.querySelector("#txtEmbyPassword").value;
                         config.EmbyApiKey = page.querySelector("#txtEmbyApiKey").value.trim();
 
-                        config.EnableStreamingChannel = page.querySelector("#chkEnableStreamingChannel").checked;
                         config.EnablePublicFallbackForUnlinkedUsers = page.querySelector("#chkEnablePublicFallback").checked;
                         config.PrimaryJellyfinUser = page.querySelector("#selectPrimaryJellyfinUser").value;
 

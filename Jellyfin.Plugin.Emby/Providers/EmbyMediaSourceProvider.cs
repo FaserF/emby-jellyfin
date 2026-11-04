@@ -183,17 +183,21 @@ public class EmbyMediaSourceProvider : IMediaSourceProvider, IHasOrder
                 defaultAudioIdx = 1;
             }
 
+            var isDirectPlayContainer = string.Equals(container, "mp4", StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(container, "m4v", StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(container, "webm", StringComparison.OrdinalIgnoreCase);
+
             var source = new MediaSourceInfo
             {
                 Id = item.Id.ToString("N"),
-                Name = $"{item.Name} (Emby Direct Play)",
+                Name = $"{item.Name} (Emby Stream)",
                 Path = streamUrl,
                 Protocol = MediaProtocol.Http,
                 Container = container,
                 Size = embySource?.Size,
                 Bitrate = embySource?.Bitrate,
                 IsRemote = true,
-                SupportsDirectPlay = true,
+                SupportsDirectPlay = isDirectPlayContainer,
                 SupportsDirectStream = true,
                 SupportsTranscoding = true,
                 SupportsProbing = false,

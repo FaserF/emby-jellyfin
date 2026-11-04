@@ -302,29 +302,33 @@ public class EmbyStartupService : IHostedService
                     }
                 }
 
-                if (config.EnableMoviesFederation && !vfs.Any(v => string.Equals(v.Name, moviesLibName, StringComparison.OrdinalIgnoreCase)))
+                var existingMovies = vfs.FirstOrDefault(v => string.Equals(v.Name, moviesLibName, StringComparison.OrdinalIgnoreCase));
+                if (config.EnableMoviesFederation && existingMovies == null)
                 {
-                    var opts = new LibraryOptions
-                    {
-                        EnableRealtimeMonitor = false,
-                        SaveLocalMetadata = false,
-                        PathInfos = new[] { new MediaPathInfo { Path = moviesDir } }
-                    };
-                    await _libraryManager.AddVirtualFolder(moviesLibName, CollectionTypeOptions.movies, opts, true).ConfigureAwait(false);
+                    var movieOpts = BuildFastEmbyLibraryOptions(moviesDir, "Movie");
+                    await _libraryManager.AddVirtualFolder(moviesLibName, CollectionTypeOptions.movies, movieOpts, true).ConfigureAwait(false);
                     _logger.LogInformation("Created dedicated Jellyfin library '{Library}' pointing to {Path}", moviesLibName, moviesDir);
                 }
 
-                if (config.EnableSeriesFederation && !vfs.Any(v => string.Equals(v.Name, seriesLibName, StringComparison.OrdinalIgnoreCase)))
+                var existingSeries = vfs.FirstOrDefault(v => string.Equals(v.Name, seriesLibName, StringComparison.OrdinalIgnoreCase));
+                if (config.EnableSeriesFederation && existingSeries == null)
                 {
-                    var opts = new LibraryOptions
-                    {
-                        EnableRealtimeMonitor = false,
-                        SaveLocalMetadata = false,
-                        PathInfos = new[] { new MediaPathInfo { Path = tvDir } }
-                    };
-                    await _libraryManager.AddVirtualFolder(seriesLibName, CollectionTypeOptions.tvshows, opts, true).ConfigureAwait(false);
+                    var seriesOpts = BuildFastEmbyLibraryOptions(tvDir, "Series");
+                    await _libraryManager.AddVirtualFolder(seriesLibName, CollectionTypeOptions.tvshows, seriesOpts, true).ConfigureAwait(false);
                     _logger.LogInformation("Created dedicated Jellyfin library '{Library}' pointing to {Path}", seriesLibName, tvDir);
                 }
+            }
+
+            var targetMoviesName = !string.IsNullOrWhiteSpace(config.TargetMoviesLibraryName) ? config.TargetMoviesLibraryName : "Filme (Emby)";
+            var targetSeriesName = !string.IsNullOrWhiteSpace(config.TargetSeriesLibraryName) ? config.TargetSeriesLibraryName : "Serien (Emby)";
+            if (config.EnableMoviesFederation)
+            {
+                EnsureLibraryArtwork(moviesDir, targetMoviesName, "movies");
+            }
+
+            if (config.EnableSeriesFederation)
+            {
+                EnsureLibraryArtwork(tvDir, targetSeriesName, "tv");
             }
 
             // Trigger initial background sync if credentials are configured
@@ -418,40 +422,100 @@ public class EmbyStartupService : IHostedService
             _logger.LogDebug(ex, "Error syncing user data to Emby");
         }
     }
-}
 
-/// <summary>
-/// Intercepts Jellyfin PlaybackInfo responses for federated Emby items to guarantee
-/// DirectPlay and DirectStream are enabled and remote stream URLs are properly exposed.
-/// </summary>
-public class EmbyPlaybackFilter : Microsoft.AspNetCore.Mvc.Filters.IAsyncResultFilter
-{
-    public async Task OnResultExecutionAsync(
-        Microsoft.AspNetCore.Mvc.Filters.ResultExecutingContext context,
-        Microsoft.AspNetCore.Mvc.Filters.ResultExecutionDelegate next)
+    private static LibraryOptions BuildFastEmbyLibraryOptions(string path, string type)
     {
-        var path = context.HttpContext.Request.Path.Value ?? string.Empty;
-        if (path.EndsWith("/PlaybackInfo", StringComparison.OrdinalIgnoreCase) &&
-            context.Result is Microsoft.AspNetCore.Mvc.ObjectResult { Value: MediaBrowser.Model.MediaInfo.PlaybackInfoResponse pbResp } &&
-            pbResp.MediaSources is { Count: > 0 })
+        return new LibraryOptions
         {
-            var embySource = pbResp.MediaSources
-                .OrderByDescending(m => m.MediaStreams?.Count ?? 0)
-                .FirstOrDefault(m => m.Path != null &&
-                                     (m.Path.Contains("/emby/Videos/", StringComparison.OrdinalIgnoreCase) ||
-                                      m.Path.Contains("/api/embyPlugin/stream/", StringComparison.OrdinalIgnoreCase)));
-
-            if (embySource != null)
+            Enabled = true,
+            EnablePhotos = false,
+            EnableRealtimeMonitor = false,
+            EnableLUFSScan = false,
+            EnableChapterImageExtraction = false,
+            ExtractChapterImagesDuringLibraryScan = false,
+            EnableTrickplayImageExtraction = false,
+            ExtractTrickplayImagesDuringLibraryScan = false,
+            SaveLocalMetadata = false,
+            AutomaticallyAddToCollection = false,
+            PathInfos = new[] { new MediaPathInfo { Path = path } },
+            TypeOptions = new[]
             {
-                embySource.Protocol = MediaBrowser.Model.MediaInfo.MediaProtocol.Http;
-                embySource.IsRemote = true;
-                embySource.SupportsDirectPlay = true;
-                embySource.SupportsDirectStream = true;
-                embySource.SupportsTranscoding = true;
-                pbResp.MediaSources = new List<MediaBrowser.Model.Dto.MediaSourceInfo> { embySource };
+                new TypeOptions
+                {
+                    Type = type,
+                    MetadataFetchers = new[] { "Nfo" },
+                    MetadataFetcherOrder = new[] { "Nfo" },
+                    ImageFetchers = new[] { "Nfo" },
+                    ImageFetcherOrder = new[] { "Nfo" }
+                }
             }
-        }
+        };
+    }
 
-        await next().ConfigureAwait(false);
+    private void EnsureLibraryArtwork(string mediaDir, string libName, string type)
+    {
+        try
+        {
+            var asmDir = Path.GetDirectoryName(typeof(EmbyStartupService).Assembly.Location) ?? string.Empty;
+            var artworkSubdir = Path.Combine(asmDir, "Artwork");
+
+            var files = new[]
+            {
+                (SrcPrefix: $"{type}_poster", DstName: "poster.png"),
+                (SrcPrefix: $"{type}_backdrop", DstName: "backdrop.png"),
+                (SrcPrefix: $"{type}_banner", DstName: "banner.png"),
+                (SrcPrefix: $"{type}_thumb", DstName: "thumb.png"),
+                (SrcPrefix: $"{type}_logo", DstName: "logo.png")
+            };
+
+            Directory.CreateDirectory(mediaDir);
+
+            var rootDefaultDir = Path.Combine(_appPaths.DataPath, "root", "default", libName);
+            try
+            {
+                Directory.CreateDirectory(rootDefaultDir);
+            }
+            catch
+            {
+                // Ignore folder creation errors
+            }
+
+            foreach (var (srcPrefix, dstName) in files)
+            {
+                var srcCandidates = new[]
+                {
+                    Path.Combine(artworkSubdir, $"{srcPrefix}.png"),
+                    Path.Combine(asmDir, $"{srcPrefix}.png"),
+                    Path.Combine(asmDir, dstName)
+                };
+
+                var foundSrc = srcCandidates.FirstOrDefault(File.Exists);
+                if (foundSrc == null)
+                {
+                    continue;
+                }
+
+                var dstMedia = Path.Combine(mediaDir, dstName);
+                if (!File.Exists(dstMedia))
+                {
+                    File.Copy(foundSrc, dstMedia, overwrite: true);
+                }
+
+                if (Directory.Exists(rootDefaultDir))
+                {
+                    var dstRoot = Path.Combine(rootDefaultDir, dstName);
+                    if (!File.Exists(dstRoot))
+                    {
+                        File.Copy(foundSrc, dstRoot, overwrite: true);
+                    }
+                }
+            }
+
+            _logger.LogInformation("Ensured library artwork deployed for '{Library}' ({Type})", libName, type);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not ensure library artwork for {Library}", libName);
+        }
     }
 }
