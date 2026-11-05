@@ -140,21 +140,44 @@ public class SyncEmbyLibraryTask : IScheduledTask
                 }
             }
 
-            foreach (var dir in Directory.GetDirectories(moviesDir))
+            // Only prune during a full sync (minDate == null) and NEVER when fetched count is zero
+            // or drops drastically compared to existing local directories (safety threshold)
+            if (minDate == null && activeMovieDirs.Count > 0)
             {
-                var dName = Path.GetFileName(dir);
-                if (!activeMovieDirs.Contains(dName))
+                var existingDirs = Directory.GetDirectories(moviesDir);
+                if (existingDirs.Length > 20 && activeMovieDirs.Count < (existingDirs.Length / 2))
                 {
-                    try
+                    logger.LogWarning(
+                        "Emby Federation: Prune aborted! Fetched only {ActiveCount} movies but local library has {ExistingCount} directories. Possible network or upstream issue.",
+                        activeMovieDirs.Count, existingDirs.Length);
+                }
+                else
+                {
+                    foreach (var dir in existingDirs)
                     {
-                        Directory.Delete(dir, recursive: true);
-                        changes++;
-                    }
-                    catch
-                    {
-                        // Ignore deletion errors
+                        var dName = Path.GetFileName(dir);
+                        if (!activeMovieDirs.Contains(dName))
+                        {
+                            try
+                            {
+                                Directory.Delete(dir, recursive: true);
+                                changes++;
+                            }
+                            catch
+                            {
+                                // Ignore deletion errors
+                            }
+                        }
                     }
                 }
+            }
+            else if (minDate != null)
+            {
+                logger.LogDebug("Emby Federation: Incremental sync active (minDate: {MinDate}), skipping movie directory pruning.", minDate);
+            }
+            else
+            {
+                logger.LogWarning("Emby Federation: Fetched 0 movies from remote Emby. Pruning skipped to protect existing library.");
             }
 
             var colChanges = await Jellyfin.Plugin.Emby.Services.EmbyBoxSetSyncService.SyncCollectionsAsync(
@@ -234,21 +257,44 @@ public class SyncEmbyLibraryTask : IScheduledTask
                 }
             }
 
-            foreach (var dir in Directory.GetDirectories(tvDir))
+            // Only prune during a full sync (minDate == null) and NEVER when fetched count is zero
+            // or drops drastically compared to existing local directories (safety threshold)
+            if (minDate == null && activeSeriesDirs.Count > 0)
             {
-                var dName = Path.GetFileName(dir);
-                if (!activeSeriesDirs.Contains(dName))
+                var existingDirs = Directory.GetDirectories(tvDir);
+                if (existingDirs.Length > 20 && activeSeriesDirs.Count < (existingDirs.Length / 2))
                 {
-                    try
+                    logger.LogWarning(
+                        "Emby Federation: Prune aborted! Fetched only {ActiveCount} series but local library has {ExistingCount} directories. Possible network or upstream issue.",
+                        activeSeriesDirs.Count, existingDirs.Length);
+                }
+                else
+                {
+                    foreach (var dir in existingDirs)
                     {
-                        Directory.Delete(dir, recursive: true);
-                        changes++;
-                    }
-                    catch
-                    {
-                        // Ignore deletion errors
+                        var dName = Path.GetFileName(dir);
+                        if (!activeSeriesDirs.Contains(dName))
+                        {
+                            try
+                            {
+                                Directory.Delete(dir, recursive: true);
+                                changes++;
+                            }
+                            catch
+                            {
+                                // Ignore deletion errors
+                            }
+                        }
                     }
                 }
+            }
+            else if (minDate != null)
+            {
+                logger.LogDebug("Emby Federation: Incremental sync active (minDate: {MinDate}), skipping series directory pruning.", minDate);
+            }
+            else
+            {
+                logger.LogWarning("Emby Federation: Fetched 0 series from remote Emby. Pruning skipped to protect existing library.");
             }
         }
 
