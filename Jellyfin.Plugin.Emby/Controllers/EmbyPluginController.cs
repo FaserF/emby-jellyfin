@@ -116,8 +116,8 @@ public class EmbyPluginController : ControllerBase
 
         Plugin.Instance?.SaveConfiguration();
 
-        var movies = await client.GetItemsAsync("Movie", limit: 1, cancellationToken: cancellationToken).ConfigureAwait(false);
-        var series = await client.GetItemsAsync("Series", limit: 1, cancellationToken: cancellationToken).ConfigureAwait(false);
+        // High-speed probe: single combined query requesting only Id, avoiding heavy table joins (Chapters, Streams, People)
+        var sample = await client.GetItemsAsync("Movie,Series", limit: 1, fields: "Id", cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return Ok(new
         {
@@ -128,7 +128,7 @@ public class EmbyPluginController : ControllerBase
             serverId = auth.ServerId,
             canDownload = auth.User?.Policy?.EnableContentDownloading ?? true,
             canPlay = auth.User?.Policy?.EnableMediaPlayback ?? true,
-            sampleReachable = movies.Count > 0 || series.Count > 0
+            sampleReachable = sample.Count > 0
         });
     }
 
@@ -242,113 +242,121 @@ public class EmbyPluginController : ControllerBase
     [AllowAnonymous]
     public async Task<ActionResult> HandleSeerrWebhook(CancellationToken cancellationToken)
     {
-        using var reader = new StreamReader(Request.Body, Encoding.UTF8);
-        var rawBody = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(rawBody))
+        try
         {
-            return BadRequest(new { ok = false, error = "Empty payload" });
-        }
-
-        using var doc = JsonDocument.Parse(rawBody);
-        var root = doc.RootElement;
-
-        var notifType = root.TryGetProperty("notification_type", out var nt) ? nt.GetString() ?? string.Empty
-            : root.TryGetProperty("event", out var ev) ? ev.GetString() ?? string.Empty
-            : string.Empty;
-
-        if (string.Equals(notifType, "TEST_NOTIFICATION", StringComparison.OrdinalIgnoreCase))
-        {
-            return Ok(new { ok = true, message = "Emby Federation Seerr Webhook Guard active" });
-        }
-
-        if (!Config.EnableSeerrRequestGuard)
-        {
-            return Ok(new { ok = true, ignored = "seerr_guard_disabled" });
-        }
-
-        if (notifType is not ("MEDIA_PENDING" or "MEDIA_AUTO_APPROVED" or "MEDIA_APPROVED"))
-        {
-            return Ok(new { ok = true, ignored = notifType });
-        }
-
-        string mediaType = "movie";
-        string? tmdbId = null;
-        string? tvdbId = null;
-        string? requestId = null;
-
-        if (root.TryGetProperty("media", out var mediaEl) && mediaEl.ValueKind == JsonValueKind.Object)
-        {
-            if (mediaEl.TryGetProperty("media_type", out var mt))
+            using var reader = new StreamReader(Request.Body, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, bufferSize: 1024, leaveOpen: true);
+            var rawBody = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(rawBody))
             {
-                mediaType = mt.GetString() ?? "movie";
+                return BadRequest(new { ok = false, error = "Empty payload" });
             }
-
-            if (mediaEl.TryGetProperty("tmdbId", out var tmdb))
+    
+            using var doc = JsonDocument.Parse(rawBody);
+            var root = doc.RootElement;
+    
+            var notifType = root.TryGetProperty("notification_type", out var nt) ? nt.GetString() ?? string.Empty
+                : root.TryGetProperty("event", out var ev) ? ev.GetString() ?? string.Empty
+                : string.Empty;
+    
+            if (string.Equals(notifType, "TEST_NOTIFICATION", StringComparison.OrdinalIgnoreCase))
             {
-                tmdbId = tmdb.ToString();
+                return Ok(new { ok = true, message = "Emby Federation Seerr Webhook Guard active" });
             }
-
-            if (mediaEl.TryGetProperty("tvdbId", out var tvdb))
+    
+            if (!Config.EnableSeerrRequestGuard)
             {
-                tvdbId = tvdb.ToString();
+                return Ok(new { ok = true, ignored = "seerr_guard_disabled" });
             }
-        }
-
-        if (root.TryGetProperty("request", out var reqEl) && reqEl.ValueKind == JsonValueKind.Object &&
-            reqEl.TryGetProperty("request_id", out var rid))
-        {
-            requestId = rid.ToString();
-        }
-
-        if (string.IsNullOrWhiteSpace(tmdbId) && string.IsNullOrWhiteSpace(tvdbId))
-        {
-            return Ok(new { ok = true, skipped = "no_external_ids" });
-        }
-
-        using var client = CreateClient();
-        var match = await client.CheckAvailabilityByExternalIdAsync(mediaType, tmdbId, tvdbId, null, cancellationToken).ConfigureAwait(false);
-        if (!match.Available)
-        {
-            return Ok(new { ok = true, availableOnEmby = false });
-        }
-
-        _logger.LogWarning(
-            "Intercepting Seerr request {RequestId} for '{Title}' ({MediaType} tmdb={TmdbId}) - already available on Emby: {EmbyUrl}",
-            requestId,
-            match.Title,
-            mediaType,
-            tmdbId,
-            match.EmbyWebUrl);
-
-        var config = Config;
-        if (!string.IsNullOrWhiteSpace(requestId) && !string.IsNullOrWhiteSpace(config.SeerrUrl) && !string.IsNullOrWhiteSpace(config.SeerrApiKey))
-        {
-            try
+    
+            if (notifType is not ("MEDIA_PENDING" or "MEDIA_AUTO_APPROVED" or "MEDIA_APPROVED"))
             {
-                var delUrl = $"{config.SeerrUrl.TrimEnd('/')}/api/v1/request/{Uri.EscapeDataString(requestId)}";
-                using var delReq = new HttpRequestMessage(HttpMethod.Delete, delUrl);
-                delReq.Headers.TryAddWithoutValidation("X-Api-Key", config.SeerrApiKey.Trim());
-                await client.HttpClient.SendAsync(delReq, cancellationToken).ConfigureAwait(false);
+                return Ok(new { ok = true, ignored = notifType });
             }
-            catch (Exception ex)
+    
+            string mediaType = "movie";
+            string? tmdbId = null;
+            string? tvdbId = null;
+            string? requestId = null;
+    
+            if (root.TryGetProperty("media", out var mediaEl) && mediaEl.ValueKind == JsonValueKind.Object)
             {
-                _logger.LogWarning(ex, "Could not cancel Seerr request {RequestId}", requestId);
+                if (mediaEl.TryGetProperty("media_type", out var mt))
+                {
+                    mediaType = mt.GetString() ?? "movie";
+                }
+    
+                if (mediaEl.TryGetProperty("tmdbId", out var tmdb))
+                {
+                    tmdbId = tmdb.ToString();
+                }
+    
+                if (mediaEl.TryGetProperty("tvdbId", out var tvdb))
+                {
+                    tvdbId = tvdb.ToString();
+                }
             }
+    
+            if (root.TryGetProperty("request", out var reqEl) && reqEl.ValueKind == JsonValueKind.Object &&
+                reqEl.TryGetProperty("request_id", out var rid))
+            {
+                requestId = rid.ToString();
+            }
+    
+            if (string.IsNullOrWhiteSpace(tmdbId) && string.IsNullOrWhiteSpace(tvdbId))
+            {
+                return Ok(new { ok = true, skipped = "no_external_ids" });
+            }
+    
+            using var client = CreateClient();
+            var match = await client.CheckAvailabilityByExternalIdAsync(mediaType, tmdbId, tvdbId, null, cancellationToken).ConfigureAwait(false);
+            if (!match.Available)
+            {
+                return Ok(new { ok = true, availableOnEmby = false });
+            }
+    
+            _logger.LogWarning(
+                "Intercepting Seerr request {RequestId} for '{Title}' ({MediaType} tmdb={TmdbId}) - already available on Emby: {EmbyUrl}",
+                requestId,
+                match.Title,
+                mediaType,
+                tmdbId,
+                match.EmbyWebUrl);
+    
+            var config = Config;
+            if (!string.IsNullOrWhiteSpace(requestId) && !string.IsNullOrWhiteSpace(config.SeerrUrl) && !string.IsNullOrWhiteSpace(config.SeerrApiKey))
+            {
+                try
+                {
+                    var delUrl = $"{config.SeerrUrl.TrimEnd('/')}/api/v1/request/{Uri.EscapeDataString(requestId)}";
+                    using var delReq = new HttpRequestMessage(HttpMethod.Delete, delUrl);
+                    delReq.Headers.TryAddWithoutValidation("X-Api-Key", config.SeerrApiKey.Trim());
+                    await client.HttpClient.SendAsync(delReq, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not cancel Seerr request {RequestId}", requestId);
+                }
+            }
+    
+            await CleanupArrEntryIfConfiguredAsync(client.HttpClient, config, mediaType, tmdbId, tvdbId, cancellationToken).ConfigureAwait(false);
+    
+            return Ok(new
+            {
+                ok = true,
+                blocked = true,
+                availableOnEmby = true,
+                reason = $"Already available on Emby ({match.Title}): {match.EmbyWebUrl}",
+                title = match.Title,
+                embyItemId = match.EmbyItemId,
+                embyWebUrl = match.EmbyWebUrl,
+                directStreamUrl = match.DirectStreamUrl
+            });
         }
-
-        await CleanupArrEntryIfConfiguredAsync(client.HttpClient, config, mediaType, tmdbId, tvdbId, cancellationToken).ConfigureAwait(false);
-
-        return Ok(new
+        catch (Exception ex)
         {
-            ok = true,
-            blocked = true,
-            availableOnEmby = true,
-            reason = $"Already available on Emby ({match.Title}): {match.EmbyWebUrl}",
-            title = match.Title,
-            embyItemId = match.EmbyItemId,
-            embyWebUrl = match.EmbyWebUrl,
-            directStreamUrl = match.DirectStreamUrl
-        });
+            _logger.LogError(ex, "Error processing Seerr webhook");
+            return Ok(new { ok = false, error = ex.Message });
+        }
     }
 
     private async Task CleanupArrEntryIfConfiguredAsync(
@@ -470,6 +478,111 @@ public class EmbyPluginController : ControllerBase
         await stream.CopyToAsync(Response.Body, 65536, cancellationToken).ConfigureAwait(false);
         return new EmptyResult();
     }
+
+    [HttpPost("seerr/test")]
+    [AllowAnonymous]
+    public async Task<ActionResult> TestSeerrConnection(
+        [FromBody] SeerrTestRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.SeerrUrl))
+        {
+            return BadRequest(new { ok = false, error = "Seerr URL is required." });
+        }
+
+        using var client = CreateClient();
+        var seerrOk = false;
+        var seerrDetails = string.Empty;
+
+        try
+        {
+            var sUrl = $"{request.SeerrUrl.Trim().TrimEnd('/')}/api/v1/status";
+            using var sReq = new HttpRequestMessage(HttpMethod.Get, sUrl);
+            if (!string.IsNullOrWhiteSpace(request.SeerrApiKey))
+            {
+                sReq.Headers.TryAddWithoutValidation("X-Api-Key", request.SeerrApiKey.Trim());
+            }
+            using var sResp = await client.HttpClient.SendAsync(sReq, cancellationToken).ConfigureAwait(false);
+            if (sResp.IsSuccessStatusCode)
+            {
+                seerrOk = true;
+                var json = await sResp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                using var doc = JsonDocument.Parse(json);
+                var version = doc.RootElement.TryGetProperty("version", out var v) ? v.GetString() : "online";
+                seerrDetails = $"Connected (v{version})";
+            }
+            else if (sResp.StatusCode == System.Net.HttpStatusCode.Unauthorized || sResp.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            {
+                seerrDetails = $"Unauthorized (HTTP {(int)sResp.StatusCode}) - Check API Key";
+            }
+            else
+            {
+                seerrDetails = $"HTTP {(int)sResp.StatusCode}";
+            }
+        }
+        catch (Exception ex)
+        {
+            seerrDetails = $"Unreachable: {ex.Message}";
+        }
+
+        string? sonarrDetails = null;
+        if (!string.IsNullOrWhiteSpace(request.SonarrUrl))
+        {
+            try
+            {
+                var sonUrl = $"{request.SonarrUrl.Trim().TrimEnd('/')}/api/v3/system/status";
+                using var req = new HttpRequestMessage(HttpMethod.Get, sonUrl);
+                if (!string.IsNullOrWhiteSpace(request.SonarrApiKey))
+                {
+                    req.Headers.TryAddWithoutValidation("X-Api-Key", request.SonarrApiKey.Trim());
+                }
+                using var resp = await client.HttpClient.SendAsync(req, cancellationToken).ConfigureAwait(false);
+                sonarrDetails = resp.IsSuccessStatusCode ? "Connected" : $"HTTP {(int)resp.StatusCode}";
+            }
+            catch (Exception ex)
+            {
+                sonarrDetails = $"Unreachable ({ex.Message})";
+            }
+        }
+
+        string? radarrDetails = null;
+        if (!string.IsNullOrWhiteSpace(request.RadarrUrl))
+        {
+            try
+            {
+                var radUrl = $"{request.RadarrUrl.Trim().TrimEnd('/')}/api/v3/system/status";
+                using var req = new HttpRequestMessage(HttpMethod.Get, radUrl);
+                if (!string.IsNullOrWhiteSpace(request.RadarrApiKey))
+                {
+                    req.Headers.TryAddWithoutValidation("X-Api-Key", request.RadarrApiKey.Trim());
+                }
+                using var resp = await client.HttpClient.SendAsync(req, cancellationToken).ConfigureAwait(false);
+                radarrDetails = resp.IsSuccessStatusCode ? "Connected" : $"HTTP {(int)resp.StatusCode}";
+            }
+            catch (Exception ex)
+            {
+                radarrDetails = $"Unreachable ({ex.Message})";
+            }
+        }
+
+        return Ok(new
+        {
+            ok = seerrOk,
+            seerr = seerrDetails,
+            sonarr = sonarrDetails,
+            radarr = radarrDetails
+        });
+    }
+}
+
+public class SeerrTestRequest
+{
+    public string? SeerrUrl { get; set; }
+    public string? SeerrApiKey { get; set; }
+    public string? SonarrUrl { get; set; }
+    public string? SonarrApiKey { get; set; }
+    public string? RadarrUrl { get; set; }
+    public string? RadarrApiKey { get; set; }
 }
 
 public class EmbyAuthTestRequest

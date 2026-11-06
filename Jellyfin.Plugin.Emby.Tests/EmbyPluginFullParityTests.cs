@@ -41,7 +41,23 @@ public class EmbyPluginFullParityTests
         config.SeerrUrl.Should().Be("http://jellyseerr:5055");
         config.SonarrUrl.Should().Be("http://sonarr:8989");
         config.RadarrUrl.Should().Be("http://radarr:7878");
+        config.EnableIncrementalSync.Should().BeTrue();
+        config.SyncIntervalHours.Should().Be(24);
+        config.ApiRequestDelayMs.Should().Be(50);
         config.UserAccounts.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void PluginConfiguration_IncrementalSync_ShouldPreserveSettings()
+    {
+        var config = new PluginConfiguration();
+        config.EnableIncrementalSync.Should().BeTrue();
+
+        config.LastSyncUtc = new DateTime(2026, 11, 4, 12, 0, 0, DateTimeKind.Utc);
+        config.LastSyncItemCount = 42;
+
+        config.LastSyncUtc.Should().NotBeNull();
+        config.LastSyncItemCount.Should().Be(42);
     }
 
     [Fact]

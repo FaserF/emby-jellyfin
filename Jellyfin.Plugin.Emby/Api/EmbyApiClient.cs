@@ -154,6 +154,7 @@ public sealed class EmbyApiClient : IDisposable
         string? filters = null,
         string? jellyfinUserOrId = null,
         DateTime? minDateLastSaved = null,
+        string? fields = null,
         CancellationToken cancellationToken = default)
     {
         var (baseUrl, token, uid, _) = await EnsureAuthenticatedAsync(jellyfinUserOrId, cancellationToken).ConfigureAwait(false);
@@ -162,8 +163,10 @@ public sealed class EmbyApiClient : IDisposable
             return new List<EmbyItemDto>();
         }
 
-        var fields = "ProviderIds,ProductionYear,PremiereDate,Overview,Genres,CommunityRating,CriticRating,OfficialRating,CustomRating,RunTimeTicks,MediaSources,MediaStreams,SeriesName,SeriesId,ParentIndexNumber,IndexNumber,UserData,People,Studios,Tags,Taglines,Chapters,OriginalTitle,SortName,Status,AirDays,AirTime,DateCreated,Collections,CollectionName";
-        var sb = new StringBuilder($"{baseUrl}/emby/Users/{Uri.EscapeDataString(uid)}/Items?Recursive=true&Fields={fields}");
+        var effectiveFields = !string.IsNullOrWhiteSpace(fields)
+            ? fields
+            : "ProviderIds,ProductionYear,PremiereDate,Overview,Genres,CommunityRating,CriticRating,OfficialRating,CustomRating,RunTimeTicks,MediaSources,MediaStreams,SeriesName,SeriesId,ParentIndexNumber,IndexNumber,UserData,People,Studios,Tags,Taglines,Chapters,OriginalTitle,SortName,Status,AirDays,AirTime,DateCreated,Collections,CollectionName";
+        var sb = new StringBuilder($"{baseUrl}/emby/Users/{Uri.EscapeDataString(uid)}/Items?Recursive=true&Fields={effectiveFields}");
 
         if (minDateLastSaved.HasValue)
         {
@@ -301,7 +304,7 @@ public sealed class EmbyApiClient : IDisposable
             ? "Series"
             : "Movie";
 
-        var items = await GetItemsAsync(embyType, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var items = await GetItemsAsync(embyType, fields: "ProviderIds,ProductionYear", cancellationToken: cancellationToken).ConfigureAwait(false);
         foreach (var item in items)
         {
             var itemTmdb = item.GetProviderId("Tmdb");

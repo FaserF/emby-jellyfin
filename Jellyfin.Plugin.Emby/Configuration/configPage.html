@@ -59,10 +59,12 @@
                                     <input id="chkEnablePublicFallback" type="checkbox" is="emby-checkbox" />
                                     <span>Allow unlinked Jellyfin users to stream via Primary Emby Account</span>
                                 </label>
+                                <div class="fieldDescription">When enabled, any Jellyfin user without a dedicated Emby account mapping can still stream media using the primary Emby credentials. If disabled, unmapped users will be blocked from streaming federated content.</div>
                             </div>
                             <div class="inputContainer">
                                 <label class="inputLabel" for="selectPrimaryJellyfinUser">Primary Jellyfin Admin / Default User</label>
                                 <select is="emby-select" id="selectPrimaryJellyfinUser" class="emby-select-withcolor emby-select"></select>
+                                <div class="fieldDescription">The primary Jellyfin administrator account linked to the remote Emby server credentials above. Serves as the default target for scheduled watch history / playhead sync and fallback streaming when individual users are unmapped.</div>
                             </div>
                             <div id="linkedUsersTable" style="margin-top:14px;">Loading user mappings...</div>
                         </div>
@@ -92,11 +94,12 @@
                                     <span>Sync TV Series, Seasons &amp; Episodes</span>
                                 </label>
                             </div>
-                            <div class="checkboxContainer">
+                            <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="chkAttachToExistingLibraries" type="checkbox" is="emby-checkbox" />
                                     <span>Merge into existing libraries (Filme / Serien)</span>
                                 </label>
+                                <div class="fieldDescription">When enabled, federated media folders are automatically merged into your existing Jellyfin libraries rather than creating separate dedicated libraries.</div>
                             </div>
                         </div>
 
@@ -104,10 +107,12 @@
                             <div class="inputContainer" style="flex:1;min-width:200px;">
                                 <label class="inputLabel" for="txtTargetMoviesLibrary">Target Movies Library Folder</label>
                                 <input id="txtTargetMoviesLibrary" type="text" is="emby-input" value="Filme" />
+                                <div class="fieldDescription">Name of the existing Jellyfin movie library to attach federated movies to.</div>
                             </div>
                             <div class="inputContainer" style="flex:1;min-width:200px;">
                                 <label class="inputLabel" for="txtTargetSeriesLibrary">Target TV Series Library Folder</label>
                                 <input id="txtTargetSeriesLibrary" type="text" is="emby-input" value="Serien" />
+                                <div class="fieldDescription">Name of the existing Jellyfin TV series library to attach federated series to.</div>
                             </div>
                         </div>
 
@@ -146,7 +151,7 @@
 
                         <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top:10px;">
                             <label class="emby-checkbox-label">
-                                <input id="chkEnableIncrementalSync" type="checkbox" is="emby-checkbox" />
+                                <input id="chkEnableIncrementalSync" type="checkbox" is="emby-checkbox" checked />
                                 <span>Enable Incremental Sync (Query only modified / new items since last sync)</span>
                             </label>
                             <div class="fieldDescription">When enabled, queries pass MinDateLastSaved so Emby only returns new or modified items, reducing query transfer and CPU overhead to near-zero.</div>
@@ -162,18 +167,21 @@
                                 <input id="chkEnablePlayheadSync" type="checkbox" is="emby-checkbox" />
                                 <span>Sync Playback Progress / Watch History with Emby</span>
                             </label>
+                            <div class="fieldDescription">Bi-directionally syncs watched status, playback timestamps, and resume bookmarks between Jellyfin and Emby during scheduled tasks.</div>
                         </div>
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="chkEnableFavoriteSync" type="checkbox" is="emby-checkbox" />
                                 <span>Sync Favorites bi-directionally (Jellyfin ♥️ &lt;=&gt; Emby Favorite)</span>
                             </label>
+                            <div class="fieldDescription">Synchronizes favorite items bi-directionally between Jellyfin and Emby accounts.</div>
                         </div>
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="chkFetchArtworkFromEmby" type="checkbox" is="emby-checkbox" />
                                 <span>Fetch Posters, Backdrops &amp; Banners directly from Emby</span>
                             </label>
+                            <div class="fieldDescription">Downloads primary posters, backdrops, and banners locally into media folders for faster loading and offline availability.</div>
                         </div>
                     </div>
 
@@ -186,16 +194,19 @@
                                 <input id="chkEnableSeerrRequestGuard" type="checkbox" is="emby-checkbox" />
                                 <span>Enable Seerr / Suggestarr Request Guard</span>
                             </label>
+                            <div class="fieldDescription">Intercepts incoming media requests from Jellyseerr/Overseerr/Suggestarr. If the item already exists on Emby, the request is automatically fulfilled or declined to prevent duplicate downloads in Sonarr/Radarr.</div>
                         </div>
 
                         <div style="display:flex;gap:12px;flex-wrap:wrap;">
                             <div class="inputContainer" style="flex:1;min-width:200px;">
                                 <label class="inputLabel" for="txtSeerrUrl">Seerr URL</label>
                                 <input id="txtSeerrUrl" type="url" is="emby-input" value="http://jellyseerr:5055" />
+                                <div class="fieldDescription">Base URL of your Jellyseerr or Overseerr instance (e.g. http://jellyseerr:5055).</div>
                             </div>
                             <div class="inputContainer" style="flex:1;min-width:200px;">
                                 <label class="inputLabel" for="txtSeerrApiKey">Seerr API Key</label>
                                 <input id="txtSeerrApiKey" type="password" is="emby-input" placeholder="Seerr API Key" />
+                                <div class="fieldDescription">API Key found under Jellyseerr Settings &gt; General &gt; API Key.</div>
                             </div>
                         </div>
 
@@ -203,10 +214,12 @@
                             <div class="inputContainer" style="flex:1;min-width:200px;">
                                 <label class="inputLabel" for="txtSonarrUrl">Sonarr URL (Optional)</label>
                                 <input id="txtSonarrUrl" type="url" is="emby-input" value="http://sonarr:8989" />
+                                <div class="fieldDescription">Base URL of your Sonarr instance for series unmonitoring or request cancellation.</div>
                             </div>
                             <div class="inputContainer" style="flex:1;min-width:200px;">
                                 <label class="inputLabel" for="txtSonarrApiKey">Sonarr API Key (Optional)</label>
                                 <input id="txtSonarrApiKey" type="password" is="emby-input" placeholder="Sonarr API Key" />
+                                <div class="fieldDescription">API Key found in Sonarr under Settings &gt; General &gt; Security.</div>
                             </div>
                         </div>
 
@@ -214,10 +227,12 @@
                             <div class="inputContainer" style="flex:1;min-width:200px;">
                                 <label class="inputLabel" for="txtRadarrUrl">Radarr URL (Optional)</label>
                                 <input id="txtRadarrUrl" type="url" is="emby-input" value="http://radarr:7878" />
+                                <div class="fieldDescription">Base URL of your Radarr instance for movie unmonitoring or request cancellation.</div>
                             </div>
                             <div class="inputContainer" style="flex:1;min-width:200px;">
                                 <label class="inputLabel" for="txtRadarrApiKey">Radarr API Key (Optional)</label>
                                 <input id="txtRadarrApiKey" type="password" is="emby-input" placeholder="Radarr API Key" />
+                                <div class="fieldDescription">API Key found in Radarr under Settings &gt; General &gt; Security.</div>
                             </div>
                         </div>
 
@@ -225,6 +240,13 @@
                             <strong>Webhook Endpoint for Seerr / Overseerr:</strong><br />
                             Add a Webhook notification in Seerr settings pointing to:<br />
                             <code id="lblSeerrWebhookUrl" style="color:#52B54B;font-size:14px;word-break:break-all;">http://&lt;jellyfin-host&gt;:8096/api/embyPlugin/webhook/seerr</code>
+                        </div>
+
+                        <div style="display:flex;gap:10px;margin-top:12px;align-items:center;">
+                            <button is="emby-button" type="button" id="btnTestSeerrConnection" class="raised" style="background:#E5A00D;color:#fff;">
+                                <span>🔍 Test Seerr &amp; Arr Guard Connection</span>
+                            </button>
+                            <div id="seerrConnStatus" style="font-size:13px;font-weight:bold;"></div>
                         </div>
                     </div>
 
@@ -448,6 +470,44 @@
                     }).catch(function (err) {
                         statusEl.style.color = "#ff4d4d";
                         statusEl.textContent = "✗ Sync error: " + err.message;
+                    });
+                });
+
+                // Test Seerr & Arr Guard Button
+                pageElem.querySelector("#btnTestSeerrConnection").addEventListener("click", function () {
+                    var statusEl = pageElem.querySelector("#seerrConnStatus");
+                    statusEl.style.color = "#ffcc00";
+                    statusEl.textContent = "Testing Seerr & Arr Guard...";
+
+                    var payload = {
+                        seerrUrl: pageElem.querySelector("#txtSeerrUrl").value.trim(),
+                        seerrApiKey: pageElem.querySelector("#txtSeerrApiKey").value.trim(),
+                        sonarrUrl: pageElem.querySelector("#txtSonarrUrl").value.trim(),
+                        sonarrApiKey: pageElem.querySelector("#txtSonarrApiKey").value.trim(),
+                        radarrUrl: pageElem.querySelector("#txtRadarrUrl").value.trim(),
+                        radarrApiKey: pageElem.querySelector("#txtRadarrApiKey").value.trim()
+                    };
+
+                    fetch("/api/embyPlugin/seerr/test", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload)
+                    }).then(function (res) {
+                        return res.json();
+                    }).then(function (data) {
+                        if (data.ok) {
+                            statusEl.style.color = "#52B54B";
+                            var msg = "✓ Seerr: " + data.seerr;
+                            if (data.sonarr) msg += " | Sonarr: " + data.sonarr;
+                            if (data.radarr) msg += " | Radarr: " + data.radarr;
+                            statusEl.textContent = msg;
+                        } else {
+                            statusEl.style.color = "#ff4d4d";
+                            statusEl.textContent = "✗ Seerr error: " + (data.seerr || data.error || "Connection failed");
+                        }
+                    }).catch(function (err) {
+                        statusEl.style.color = "#ff4d4d";
+                        statusEl.textContent = "✗ Error: " + err.message;
                     });
                 });
             })();
