@@ -500,21 +500,33 @@ public class EmbyStartupService : IHostedService
                 }
             }
 
-            // Only deploy poster image to rootDefaultDir for home screen library tile
-            var posterCandidates = new[]
+            // Deploy fallback artwork (poster, backdrop, banner, thumb) to rootDefaultDir for library tiles on home screen
+            // Excludes logo.png to ensure movie/show titles are always rendered as crisp text when present
+            var fallbackFiles = new[]
             {
-                Path.Combine(artworkSubdir, $"{type}_poster.png"),
-                Path.Combine(asmDir, $"{type}_poster.png"),
-                Path.Combine(asmDir, "poster.png")
+                (SrcPrefix: $"{type}_poster", DstName: "poster.png"),
+                (SrcPrefix: $"{type}_backdrop", DstName: "backdrop.png"),
+                (SrcPrefix: $"{type}_banner", DstName: "banner.png"),
+                (SrcPrefix: $"{type}_thumb", DstName: "thumb.png")
             };
 
-            var foundPoster = posterCandidates.FirstOrDefault(File.Exists);
-            if (foundPoster != null && Directory.Exists(rootDefaultDir))
+            foreach (var (srcPrefix, dstName) in fallbackFiles)
             {
-                var dstPoster = Path.Combine(rootDefaultDir, "poster.png");
-                if (!File.Exists(dstPoster))
+                var candidates = new[]
                 {
-                    File.Copy(foundPoster, dstPoster, overwrite: true);
+                    Path.Combine(artworkSubdir, $"{srcPrefix}.png"),
+                    Path.Combine(asmDir, $"{srcPrefix}.png"),
+                    Path.Combine(asmDir, dstName)
+                };
+
+                var found = candidates.FirstOrDefault(File.Exists);
+                if (found != null && Directory.Exists(rootDefaultDir))
+                {
+                    var dst = Path.Combine(rootDefaultDir, dstName);
+                    if (!File.Exists(dst))
+                    {
+                        File.Copy(found, dst, overwrite: true);
+                    }
                 }
             }
 
