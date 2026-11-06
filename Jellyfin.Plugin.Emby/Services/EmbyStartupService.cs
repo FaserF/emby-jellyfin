@@ -443,10 +443,16 @@ public class EmbyStartupService : IHostedService
                 new TypeOptions
                 {
                     Type = type,
-                    MetadataFetchers = new[] { "Nfo" },
-                    MetadataFetcherOrder = new[] { "Nfo" },
-                    ImageFetchers = new[] { "Nfo" },
-                    ImageFetcherOrder = new[] { "Nfo" }
+                    MetadataFetchers = new[] { "Emby", "Nfo", "TheMovieDb", "The Open Movie Database" },
+                    MetadataFetcherOrder = new[] { "Emby", "Nfo", "TheMovieDb", "The Open Movie Database" },
+                    ImageFetchers = new[] { "Emby", "TheMovieDb", "The Open Movie Database" },
+                    ImageFetcherOrder = new[] { "Emby", "TheMovieDb", "The Open Movie Database" },
+                    ImageOptions = new[]
+                    {
+                        new ImageOption { Type = ImageType.Primary, Limit = 1, MinWidth = 0 },
+                        new ImageOption { Type = ImageType.Backdrop, Limit = 1, MinWidth = 0 },
+                        new ImageOption { Type = ImageType.Logo, Limit = 1, MinWidth = 0 }
+                    }
                 }
             }
         };
@@ -459,8 +465,8 @@ public class EmbyStartupService : IHostedService
             var asmDir = Path.GetDirectoryName(typeof(EmbyStartupService).Assembly.Location) ?? string.Empty;
             var artworkSubdir = Path.Combine(asmDir, "Artwork");
 
-            // Clean up any unwanted logo/backdrop/banner images from mediaDir that cause movies/shows to inherit library logos
-            foreach (var unwanted in new[] { "logo.png", "backdrop.png", "banner.png" })
+            // Clean up any unwanted logo/backdrop/banner/thumb/poster images from mediaDir that cause movies/shows to inherit library logos or thumbs
+            foreach (var unwanted in new[] { "logo.png", "backdrop.png", "banner.png", "thumb.png", "poster.png", "logo.jpg", "backdrop.jpg", "banner.jpg", "thumb.jpg", "poster.jpg" })
             {
                 var p = Path.Combine(mediaDir, unwanted);
                 if (File.Exists(p))
