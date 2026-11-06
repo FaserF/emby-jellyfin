@@ -166,7 +166,7 @@ public class EmbyPluginController : ControllerBase
     {
         var config = Config;
         using var client = CreateClient();
-        var changes = await SyncEmbyLibraryTask.PerformSyncAsync(client, config, _logger, null, cancellationToken).ConfigureAwait(false);
+        var changes = await SyncEmbyLibraryTask.PerformSyncAsync(client, config, _logger, null, cancellationToken, libraryManager: _libraryManager).ConfigureAwait(false);
         _libraryManager.QueueLibraryScan();
         return Ok(new { ok = true, changes });
     }

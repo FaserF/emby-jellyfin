@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.Emby.Api;
+using Jellyfin.Plugin.Emby.Common;
 using Jellyfin.Plugin.Emby.Configuration;
 using Jellyfin.Plugin.Emby.Models;
 using MediaBrowser.Controller.Library;
@@ -33,7 +34,7 @@ public class SyncEmbyLibraryTask : IScheduledTask
 
     public string Name => "Sync Federated Emby Library to Jellyfin (.strm & .nfo)";
     public string Key => "SyncEmbyLibraryTask";
-    public string Description => "Synchronizes Movies, Series, Seasons, and Episodes from the configured Emby server into lightweight .strm and .nfo pointers (with TMDb/TVDb/IMDb IDs) and triggers Jellyfin & Seerr scans.";
+    public string Description => "Synchronizes Movies, Series, Seasons, and Episodes from the configured Emby server into lightweight .strm and .nfo pointers with smart local merging (Prio 1 Local, Prio 2 Stream).";
     public string Category => "Emby Federation";
 
     public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
@@ -59,7 +60,7 @@ public class SyncEmbyLibraryTask : IScheduledTask
         }
 
         using var client = new EmbyApiClient(_httpClientFactory.CreateClient("Emby"), _loggerFactory.CreateLogger<EmbyApiClient>());
-        var changes = await PerformSyncAsync(client, config, _logger, progress, cancellationToken, isManual: true).ConfigureAwait(false);
+        var changes = await PerformSyncAsync(client, config, _logger, progress, cancellationToken, isManual: true, libraryManager: _libraryManager).ConfigureAwait(false);
         if (changes > 0)
         {
             _libraryManager.QueueLibraryScan();
@@ -75,7 +76,8 @@ public class SyncEmbyLibraryTask : IScheduledTask
         ILogger logger,
         IProgress<double>? progress,
         CancellationToken cancellationToken,
-        bool isManual = false)
+        bool isManual = false,
+        ILibraryManager? libraryManager = null)
     {
         if (!isManual && config.EnableIncrementalSync && config.LastSyncUtc.HasValue)
         {
@@ -102,8 +104,14 @@ public class SyncEmbyLibraryTask : IScheduledTask
 
         var ignored = LoadIgnoredIdentifiers(rootDir, config);
         var changes = 0;
-
         var minDate = !isManual && config.EnableIncrementalSync ? config.LastSyncUtc : null;
+
+        var localSeriesLocs = LocalLibraryMatcher.GetLocalLocations(libraryManager, "tvshows", "/data/tv");
+        var localSeriesList = LocalLibraryMatcher.ScanLocalSeries(localSeriesLocs, logger);
+        var localMovieLocs = LocalLibraryMatcher.GetLocalLocations(libraryManager, "movies", "/data/movies");
+        var localMoviesList = LocalLibraryMatcher.ScanLocalMovies(localMovieLocs, logger);
+
+        logger.LogInformation("Emby Federation: Found {LocalSeriesCount} local series across {LocCount} folders for smart merge.", localSeriesList.Count, localSeriesLocs.Count);
 
         if (config.EnableMoviesFederation)
         {
@@ -124,31 +132,48 @@ public class SyncEmbyLibraryTask : IScheduledTask
                     continue;
                 }
 
+                var matchedLocal = LocalLibraryMatcher.MatchLocalMovie(m, localMoviesList);
                 var folderName = BuildMovieFolderName(m);
-                activeMovieDirs.Add(folderName);
-                var mDir = Path.Combine(moviesDir, folderName);
+                var embyMovieDir = Path.Combine(moviesDir, folderName);
 
+                if (matchedLocal != null)
+                {
+                    if (Directory.Exists(embyMovieDir))
+                    {
+                        try
+                        {
+                            Directory.Delete(embyMovieDir, recursive: true);
+                            changes++;
+                            logger.LogInformation("Pruned duplicate Emby movie directory {Path} (Prio 1 local copy exists at {LocalPath})", embyMovieDir, matchedLocal.Path);
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.LogDebug(ex, "Could not delete merged Emby movie dir {Path}", embyMovieDir);
+                        }
+                    }
+                    continue;
+                }
+
+                activeMovieDirs.Add(folderName);
                 var streamUrl = BuildStrmContent(config, baseUrl, token, m.Id);
-                if (WriteIfChanged(Path.Combine(mDir, $"{folderName}.strm"), streamUrl, logger))
+                if (WriteIfChanged(Path.Combine(embyMovieDir, $"{folderName}.strm"), streamUrl, logger))
                 {
                     changes++;
                 }
 
-                if (WriteIfChanged(Path.Combine(mDir, $"{folderName}.nfo"), FormatMovieNfo(m, baseUrl, serverId), logger))
+                if (WriteIfChanged(Path.Combine(embyMovieDir, $"{folderName}.nfo"), FormatMovieNfo(m, baseUrl, serverId), logger))
                 {
                     changes++;
                 }
             }
 
-            // Only prune during a full sync (minDate == null) and NEVER when fetched count is zero
-            // or drops drastically compared to existing local directories (safety threshold)
             if (minDate == null && activeMovieDirs.Count > 0)
             {
                 var existingDirs = Directory.GetDirectories(moviesDir);
                 if (existingDirs.Length > 20 && activeMovieDirs.Count < (existingDirs.Length / 2))
                 {
                     logger.LogWarning(
-                        "Emby Federation: Prune aborted! Fetched only {ActiveCount} movies but local library has {ExistingCount} directories. Possible network or upstream issue.",
+                        "Emby Federation: Movie prune aborted! Fetched {ActiveCount} but library has {ExistingCount} directories.",
                         activeMovieDirs.Count, existingDirs.Length);
                 }
                 else
@@ -170,14 +195,6 @@ public class SyncEmbyLibraryTask : IScheduledTask
                         }
                     }
                 }
-            }
-            else if (minDate != null)
-            {
-                logger.LogDebug("Emby Federation: Incremental sync active (minDate: {MinDate}), skipping movie directory pruning.", minDate);
-            }
-            else
-            {
-                logger.LogWarning("Emby Federation: Fetched 0 movies from remote Emby. Pruning skipped to protect existing library.");
             }
 
             var colChanges = await Jellyfin.Plugin.Emby.Services.EmbyBoxSetSyncService.SyncCollectionsAsync(
@@ -201,7 +218,7 @@ public class SyncEmbyLibraryTask : IScheduledTask
             }
             progress?.Report(80);
 
-            var seriesMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var seriesMap = new Dictionary<string, (string Path, bool IsMerged, HashSet<(int, int)> LocalVideos)>(StringComparer.OrdinalIgnoreCase);
             var activeSeriesDirs = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var s in seriesList)
@@ -212,14 +229,65 @@ public class SyncEmbyLibraryTask : IScheduledTask
                     continue;
                 }
 
-                var folderName = BuildSeriesFolderName(s);
-                activeSeriesDirs.Add(folderName);
-                var sDir = Path.Combine(tvDir, folderName);
-                seriesMap[s.Id] = sDir;
-
-                if (WriteIfChanged(Path.Combine(sDir, "tvshow.nfo"), FormatSeriesNfo(s, baseUrl, serverId)))
+                var matchedLocal = LocalLibraryMatcher.MatchLocalSeries(s, localSeriesList);
+                if (matchedLocal != null)
                 {
-                    changes++;
+                    var sDir = matchedLocal.Path;
+                    var localVideos = LocalLibraryMatcher.IndexLocalVideos(sDir);
+                    seriesMap[s.Id] = (sDir, true, localVideos);
+
+                    var embyDuplicateDir = Path.Combine(tvDir, BuildSeriesFolderName(s));
+                    if (Directory.Exists(embyDuplicateDir))
+                    {
+                        try
+                        {
+                            Directory.Delete(embyDuplicateDir, recursive: true);
+                            changes++;
+                            logger.LogInformation("Deleted duplicate Emby series dir {Path} - merged into local {LocalPath}", embyDuplicateDir, sDir);
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.LogDebug(ex, "Could not delete old Emby dir {Path}", embyDuplicateDir);
+                        }
+                    }
+
+                    // Look for any other lingering folder for this series id in tvDir
+                    try
+                    {
+                        foreach (var existingFolder in Directory.GetDirectories(tvDir))
+                        {
+                            if (existingFolder.Contains($"[EmbySeries-{s.Id}]", StringComparison.OrdinalIgnoreCase))
+                            {
+                                Directory.Delete(existingFolder, recursive: true);
+                                changes++;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+
+                    var localNfo = Path.Combine(sDir, "tvshow.nfo");
+                    if (!File.Exists(localNfo))
+                    {
+                        if (WriteIfChanged(localNfo, FormatSeriesNfo(s, baseUrl, serverId)))
+                        {
+                            changes++;
+                        }
+                    }
+                }
+                else
+                {
+                    var folderName = BuildSeriesFolderName(s);
+                    activeSeriesDirs.Add(folderName);
+                    var sDir = Path.Combine(tvDir, folderName);
+                    seriesMap[s.Id] = (sDir, false, new HashSet<(int, int)>());
+
+                    if (WriteIfChanged(Path.Combine(sDir, "tvshow.nfo"), FormatSeriesNfo(s, baseUrl, serverId)))
+                    {
+                        changes++;
+                    }
                 }
             }
 
@@ -232,20 +300,40 @@ public class SyncEmbyLibraryTask : IScheduledTask
                 }
 
                 var sid = ep.SeriesId ?? string.Empty;
-                if (!seriesMap.TryGetValue(sid, out var sDir))
+                string sDir;
+                bool isMerged = false;
+                HashSet<(int, int)> localVideos;
+
+                if (seriesMap.TryGetValue(sid, out var seriesInfo))
+                {
+                    sDir = seriesInfo.Path;
+                    isMerged = seriesInfo.IsMerged;
+                    localVideos = seriesInfo.LocalVideos;
+                }
+                else
                 {
                     var fallbackFolder = $"{SanitizeFileName(ep.SeriesName ?? "Unknown Series")} [embyseriesid-{(!string.IsNullOrWhiteSpace(sid) ? sid : ep.Id)}]";
                     activeSeriesDirs.Add(fallbackFolder);
                     sDir = Path.Combine(tvDir, fallbackFolder);
-                    seriesMap[sid] = sDir;
+                    localVideos = new HashSet<(int, int)>();
+                    seriesMap[sid] = (sDir, false, localVideos);
                 }
 
                 var seasonNum = ep.ParentIndexNumber ?? 1;
                 var epNum = ep.IndexNumber ?? 1;
                 var seasonDir = Path.Combine(sDir, $"Season {seasonNum:D2}");
-                var epStem = $"S{seasonNum:D2}E{epNum:D2} - {SanitizeFileName(ep.Name)} [EmbyEpisode-{ep.Id}]";
 
+                if (isMerged && localVideos.Contains((seasonNum, epNum)))
+                {
+                    // Prio 1: Local video exists! Clean up any stale strm and skip
+                    LocalLibraryMatcher.CleanupStaleStrm(seasonDir, seasonNum, epNum, logger);
+                    continue;
+                }
+
+                // Prio 2: Emby stream pointer
+                var epStem = $"S{seasonNum:D2}E{epNum:D2} - {SanitizeFileName(ep.Name)} [EmbyEpisode-{ep.Id}]";
                 var streamUrl = BuildStrmContent(config, baseUrl, token, ep.Id);
+
                 if (WriteIfChanged(Path.Combine(seasonDir, $"{epStem}.strm"), streamUrl))
                 {
                     changes++;
@@ -257,15 +345,13 @@ public class SyncEmbyLibraryTask : IScheduledTask
                 }
             }
 
-            // Only prune during a full sync (minDate == null) and NEVER when fetched count is zero
-            // or drops drastically compared to existing local directories (safety threshold)
             if (minDate == null && activeSeriesDirs.Count > 0)
             {
                 var existingDirs = Directory.GetDirectories(tvDir);
                 if (existingDirs.Length > 20 && activeSeriesDirs.Count < (existingDirs.Length / 2))
                 {
                     logger.LogWarning(
-                        "Emby Federation: Prune aborted! Fetched only {ActiveCount} series but local library has {ExistingCount} directories. Possible network or upstream issue.",
+                        "Emby Federation: Series prune aborted! Fetched {ActiveCount} but library has {ExistingCount} directories.",
                         activeSeriesDirs.Count, existingDirs.Length);
                 }
                 else
@@ -287,14 +373,6 @@ public class SyncEmbyLibraryTask : IScheduledTask
                         }
                     }
                 }
-            }
-            else if (minDate != null)
-            {
-                logger.LogDebug("Emby Federation: Incremental sync active (minDate: {MinDate}), skipping series directory pruning.", minDate);
-            }
-            else
-            {
-                logger.LogWarning("Emby Federation: Fetched 0 series from remote Emby. Pruning skipped to protect existing library.");
             }
         }
 
@@ -378,293 +456,14 @@ public class SyncEmbyLibraryTask : IScheduledTask
         }
     }
 
-    public static string FormatMovieNfo(EmbyItemDto item, string baseUrl, string serverId)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>");
-        sb.AppendLine("<movie>");
-        sb.AppendLine($"  <title>{WebUtility.HtmlEncode(item.Name)}</title>");
-        if (item.ProductionYear.HasValue)
-        {
-            sb.AppendLine($"  <year>{item.ProductionYear.Value}</year>");
-        }
+    public static string FormatMovieNfo(EmbyItemDto item, string baseUrl, string serverId) =>
+        EmbyNfoFormatter.FormatMovieNfo(item, baseUrl, serverId);
 
-        var effSrv = !string.IsNullOrWhiteSpace(item.ServerId) ? item.ServerId : serverId;
-        var webLink = $"{baseUrl.TrimEnd('/')}/web/index.html#!/item?id={Uri.EscapeDataString(item.Id)}&serverId={Uri.EscapeDataString(effSrv)}";
+    public static string FormatSeriesNfo(EmbyItemDto item, string baseUrl, string serverId) =>
+        EmbyNfoFormatter.FormatSeriesNfo(item, baseUrl, serverId);
 
-        if (!string.IsNullOrWhiteSpace(item.Overview))
-        {
-            sb.AppendLine($"  <plot>{WebUtility.HtmlEncode(item.Overview.Trim())}</plot>");
-        }
-
-        sb.AppendLine($"  <website>{WebUtility.HtmlEncode(webLink)}</website>");
-        sb.AppendLine($"  <homepage>{WebUtility.HtmlEncode(webLink)}</homepage>");
-
-        if (item.GetProviderId("Tmdb") is { } tmdb)
-        {
-            sb.AppendLine($"  <tmdbid>{WebUtility.HtmlEncode(tmdb)}</tmdbid>");
-            sb.AppendLine($"  <uniqueid type=\"tmdb\" default=\"true\">{WebUtility.HtmlEncode(tmdb)}</uniqueid>");
-        }
-
-        if (item.GetProviderId("Imdb") is { } imdb)
-        {
-            sb.AppendLine($"  <imdbid>{WebUtility.HtmlEncode(imdb)}</imdbid>");
-            sb.AppendLine($"  <uniqueid type=\"imdb\">{WebUtility.HtmlEncode(imdb)}</uniqueid>");
-        }
-
-        if (item.GetProviderId("Tvdb") is { } tvdb)
-        {
-            sb.AppendLine($"  <tvdbid>{WebUtility.HtmlEncode(tvdb)}</tvdbid>");
-            sb.AppendLine($"  <uniqueid type=\"tvdb\">{WebUtility.HtmlEncode(tvdb)}</uniqueid>");
-        }
-
-        sb.AppendLine($"  <uniqueid type=\"EmbyMovie\">{WebUtility.HtmlEncode(item.Id)}</uniqueid>");
-        sb.AppendLine($"  <uniqueid type=\"EmbyItem\">{WebUtility.HtmlEncode(item.Id)}</uniqueid>");
-
-        if (item.Genres != null)
-        {
-            foreach (var g in item.Genres)
-            {
-                sb.AppendLine($"  <genre>{WebUtility.HtmlEncode(g)}</genre>");
-            }
-        }
-
-        sb.AppendLine("  <tag>Emby-Federated</tag>");
-
-        var colName = !string.IsNullOrWhiteSpace(item.CollectionName)
-            ? item.CollectionName
-            : item.Collections?.FirstOrDefault(c => !string.IsNullOrWhiteSpace(c.Name))?.Name;
-
-        if (!string.IsNullOrWhiteSpace(colName))
-        {
-            sb.AppendLine("  <set>");
-            sb.AppendLine($"    <name>{WebUtility.HtmlEncode(colName.Trim())}</name>");
-            sb.AppendLine("  </set>");
-        }
-
-        AppendFileInfoXml(sb, item);
-        sb.AppendLine("</movie>");
-        return sb.ToString();
-    }
-
-    public static string FormatSeriesNfo(EmbyItemDto item, string baseUrl, string serverId)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>");
-        sb.AppendLine("<tvshow>");
-        sb.AppendLine($"  <title>{WebUtility.HtmlEncode(item.Name)}</title>");
-        if (item.ProductionYear.HasValue)
-        {
-            sb.AppendLine($"  <year>{item.ProductionYear.Value}</year>");
-        }
-
-        var effSrv = !string.IsNullOrWhiteSpace(item.ServerId) ? item.ServerId : serverId;
-        var webLink = $"{baseUrl.TrimEnd('/')}/web/index.html#!/item?id={Uri.EscapeDataString(item.Id)}&serverId={Uri.EscapeDataString(effSrv)}";
-
-        if (!string.IsNullOrWhiteSpace(item.Overview))
-        {
-            sb.AppendLine($"  <plot>{WebUtility.HtmlEncode(item.Overview.Trim())}</plot>");
-        }
-
-        sb.AppendLine($"  <website>{WebUtility.HtmlEncode(webLink)}</website>");
-        sb.AppendLine($"  <homepage>{WebUtility.HtmlEncode(webLink)}</homepage>");
-
-        if (item.GetProviderId("Tvdb") is { } tvdb)
-        {
-            sb.AppendLine($"  <id>{WebUtility.HtmlEncode(tvdb)}</id>");
-            sb.AppendLine($"  <tvdbid>{WebUtility.HtmlEncode(tvdb)}</tvdbid>");
-            sb.AppendLine($"  <uniqueid type=\"tvdb\" default=\"true\">{WebUtility.HtmlEncode(tvdb)}</uniqueid>");
-        }
-
-        if (item.GetProviderId("Tmdb") is { } tmdb)
-        {
-            sb.AppendLine($"  <tmdbid>{WebUtility.HtmlEncode(tmdb)}</tmdbid>");
-            sb.AppendLine($"  <uniqueid type=\"tmdb\">{WebUtility.HtmlEncode(tmdb)}</uniqueid>");
-        }
-
-        if (item.GetProviderId("Imdb") is { } imdb)
-        {
-            sb.AppendLine($"  <imdb_id>{WebUtility.HtmlEncode(imdb)}</imdb_id>");
-            sb.AppendLine($"  <uniqueid type=\"imdb\">{WebUtility.HtmlEncode(imdb)}</uniqueid>");
-        }
-
-        sb.AppendLine($"  <uniqueid type=\"EmbySeries\">{WebUtility.HtmlEncode(item.Id)}</uniqueid>");
-        sb.AppendLine("  <tag>Emby-Federated</tag>");
-        sb.AppendLine("</tvshow>");
-        return sb.ToString();
-    }
-
-    public static string FormatEpisodeNfo(EmbyItemDto item)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>");
-        sb.AppendLine("<episodedetails>");
-        sb.AppendLine($"  <title>{WebUtility.HtmlEncode(item.Name)}</title>");
-        sb.AppendLine($"  <season>{item.ParentIndexNumber ?? 1}</season>");
-        sb.AppendLine($"  <episode>{item.IndexNumber ?? 1}</episode>");
-        if (!string.IsNullOrWhiteSpace(item.Overview))
-        {
-            sb.AppendLine($"  <plot>{WebUtility.HtmlEncode(item.Overview)}</plot>");
-        }
-
-        if (item.GetProviderId("Tvdb") is { } tvdb)
-        {
-            sb.AppendLine($"  <uniqueid type=\"tvdb\" default=\"true\">{WebUtility.HtmlEncode(tvdb)}</uniqueid>");
-        }
-
-        if (item.GetProviderId("Tmdb") is { } tmdb)
-        {
-            sb.AppendLine($"  <uniqueid type=\"tmdb\">{WebUtility.HtmlEncode(tmdb)}</uniqueid>");
-        }
-
-        if (item.GetProviderId("Imdb") is { } imdb)
-        {
-            sb.AppendLine($"  <uniqueid type=\"imdb\">{WebUtility.HtmlEncode(imdb)}</uniqueid>");
-        }
-
-        sb.AppendLine($"  <uniqueid type=\"EmbyEpisode\">{WebUtility.HtmlEncode(item.Id)}</uniqueid>");
-        AppendFileInfoXml(sb, item);
-        sb.AppendLine("</episodedetails>");
-        return sb.ToString();
-    }
-
-    private static void AppendFileInfoXml(StringBuilder sb, EmbyItemDto item)
-    {
-        var ms = item.MediaSources?.FirstOrDefault();
-        var ticks = ms?.RunTimeTicks ?? item.RunTimeTicks ?? 0;
-        var durSec = ticks > 0 ? ticks / 10_000_000 : 0;
-
-        if (ms?.MediaStreams != null && ms.MediaStreams.Count > 0)
-        {
-            sb.AppendLine("  <fileinfo>");
-            sb.AppendLine("    <streamdetails>");
-            foreach (var st in ms.MediaStreams)
-            {
-                if (string.Equals(st.Type, "Video", StringComparison.OrdinalIgnoreCase))
-                {
-                    sb.AppendLine("      <video>");
-                    if (!string.IsNullOrWhiteSpace(st.Codec))
-                    {
-                        sb.AppendLine($"        <codec>{WebUtility.HtmlEncode(st.Codec)}</codec>");
-                    }
-
-                    if (st.Width.HasValue && st.Height.HasValue)
-                    {
-                        sb.AppendLine($"        <width>{st.Width.Value}</width>");
-                        sb.AppendLine($"        <height>{st.Height.Value}</height>");
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(st.AspectRatio))
-                    {
-                        sb.AppendLine($"        <aspect>{WebUtility.HtmlEncode(st.AspectRatio)}</aspect>");
-                    }
-
-                    if (st.BitRate.HasValue)
-                    {
-                        sb.AppendLine($"        <bitrate>{st.BitRate.Value}</bitrate>");
-                    }
-
-                    if (st.BitDepth.HasValue)
-                    {
-                        sb.AppendLine($"        <bitdepth>{st.BitDepth.Value}</bitdepth>");
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(st.VideoRange))
-                    {
-                        sb.AppendLine($"        <hdrtype>{WebUtility.HtmlEncode(st.VideoRange)}</hdrtype>");
-                    }
-
-                    sb.AppendLine($"        <scantype>{(st.IsInterlaced ? "interlaced" : "progressive")}</scantype>");
-
-                    if (durSec > 0)
-                    {
-                        sb.AppendLine($"        <durationinseconds>{durSec}</durationinseconds>");
-                    }
-
-                    sb.AppendLine("      </video>");
-                }
-                else if (string.Equals(st.Type, "Audio", StringComparison.OrdinalIgnoreCase))
-                {
-                    sb.AppendLine("      <audio>");
-                    if (!string.IsNullOrWhiteSpace(st.Codec))
-                    {
-                        sb.AppendLine($"        <codec>{WebUtility.HtmlEncode(st.Codec)}</codec>");
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(st.Language))
-                    {
-                        sb.AppendLine($"        <language>{WebUtility.HtmlEncode(st.Language)}</language>");
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(st.DisplayTitle ?? st.Title))
-                    {
-                        sb.AppendLine($"        <title>{WebUtility.HtmlEncode(st.DisplayTitle ?? st.Title)}</title>");
-                    }
-
-                    sb.AppendLine($"        <channels>{st.Channels ?? 2}</channels>");
-                    if (st.BitRate.HasValue)
-                    {
-                        sb.AppendLine($"        <bitrate>{st.BitRate.Value}</bitrate>");
-                    }
-
-                    if (st.SampleRate.HasValue)
-                    {
-                        sb.AppendLine($"        <samplingrate>{st.SampleRate.Value}</samplingrate>");
-                    }
-
-                    sb.AppendLine("      </audio>");
-                }
-                else if (string.Equals(st.Type, "Subtitle", StringComparison.OrdinalIgnoreCase))
-                {
-                    sb.AppendLine("      <subtitle>");
-                    if (!string.IsNullOrWhiteSpace(st.Language))
-                    {
-                        sb.AppendLine($"        <language>{WebUtility.HtmlEncode(st.Language)}</language>");
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(st.Codec))
-                    {
-                        sb.AppendLine($"        <format>{WebUtility.HtmlEncode(st.Codec)}</format>");
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(st.DisplayTitle ?? st.Title))
-                    {
-                        sb.AppendLine($"        <title>{WebUtility.HtmlEncode(st.DisplayTitle ?? st.Title)}</title>");
-                    }
-
-                    if (st.IsForced)
-                    {
-                        sb.AppendLine("        <forced>true</forced>");
-                    }
-                    if (st.IsDefault)
-                    {
-                        sb.AppendLine("        <default>true</default>");
-                    }
-
-                    sb.AppendLine("      </subtitle>");
-                }
-            }
-
-            sb.AppendLine("    </streamdetails>");
-            sb.AppendLine("  </fileinfo>");
-        }
-
-        if (item.Chapters != null && item.Chapters.Count > 0)
-        {
-            sb.AppendLine("  <chapters>");
-            foreach (var ch in item.Chapters)
-            {
-                sb.AppendLine("    <chapter>");
-                if (!string.IsNullOrWhiteSpace(ch.Name))
-                {
-                    sb.AppendLine($"      <name>{WebUtility.HtmlEncode(ch.Name.Trim())}</name>");
-                }
-                sb.AppendLine($"      <startpositionticks>{ch.StartPositionTicks}</startpositionticks>");
-                sb.AppendLine("    </chapter>");
-            }
-            sb.AppendLine("  </chapters>");
-        }
-    }
+    public static string FormatEpisodeNfo(EmbyItemDto item) =>
+        EmbyNfoFormatter.FormatEpisodeNfo(item);
 
     private static async Task TriggerSeerrScanAsync(HttpClient http, PluginConfiguration config, ILogger logger, CancellationToken cancellationToken)
     {

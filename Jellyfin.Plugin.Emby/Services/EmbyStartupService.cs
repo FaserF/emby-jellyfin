@@ -339,7 +339,7 @@ public class EmbyStartupService : IHostedService
                     try
                     {
                         using var client = new EmbyApiClient(_httpClientFactory.CreateClient("Emby"), _loggerFactory.CreateLogger<EmbyApiClient>());
-                        var changed = await SyncEmbyLibraryTask.PerformSyncAsync(client, config, _logger, null, CancellationToken.None).ConfigureAwait(false);
+                        var changed = await SyncEmbyLibraryTask.PerformSyncAsync(client, config, _logger, null, CancellationToken.None, libraryManager: _libraryManager).ConfigureAwait(false);
                         if (changed > 0)
                         {
                             _libraryManager.QueueLibraryScan();
