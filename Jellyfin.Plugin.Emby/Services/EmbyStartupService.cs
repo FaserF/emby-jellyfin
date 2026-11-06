@@ -459,16 +459,22 @@ public class EmbyStartupService : IHostedService
             var asmDir = Path.GetDirectoryName(typeof(EmbyStartupService).Assembly.Location) ?? string.Empty;
             var artworkSubdir = Path.Combine(asmDir, "Artwork");
 
-            var files = new[]
+            // Clean up any unwanted logo/backdrop/banner images from mediaDir that cause movies/shows to inherit library logos
+            foreach (var unwanted in new[] { "logo.png", "backdrop.png", "banner.png" })
             {
-                (SrcPrefix: $"{type}_poster", DstName: "poster.png"),
-                (SrcPrefix: $"{type}_backdrop", DstName: "backdrop.png"),
-                (SrcPrefix: $"{type}_banner", DstName: "banner.png"),
-                (SrcPrefix: $"{type}_thumb", DstName: "thumb.png"),
-                (SrcPrefix: $"{type}_logo", DstName: "logo.png")
-            };
-
-            Directory.CreateDirectory(mediaDir);
+                var p = Path.Combine(mediaDir, unwanted);
+                if (File.Exists(p))
+                {
+                    try
+                    {
+                        File.Delete(p);
+                    }
+                    catch
+                    {
+                        // Ignore cleanup errors
+                    }
+                }
+            }
 
             var rootDefaultDir = Path.Combine(_appPaths.DataPath, "root", "default", libName);
             try
@@ -480,34 +486,35 @@ public class EmbyStartupService : IHostedService
                 // Ignore folder creation errors
             }
 
-            foreach (var (srcPrefix, dstName) in files)
+            // Remove unwanted logo from library root tile so it does not suppress plain text titles
+            var rootLogo = Path.Combine(rootDefaultDir, "logo.png");
+            if (File.Exists(rootLogo))
             {
-                var srcCandidates = new[]
+                try
                 {
-                    Path.Combine(artworkSubdir, $"{srcPrefix}.png"),
-                    Path.Combine(asmDir, $"{srcPrefix}.png"),
-                    Path.Combine(asmDir, dstName)
-                };
-
-                var foundSrc = srcCandidates.FirstOrDefault(File.Exists);
-                if (foundSrc == null)
-                {
-                    continue;
+                    File.Delete(rootLogo);
                 }
-
-                var dstMedia = Path.Combine(mediaDir, dstName);
-                if (!File.Exists(dstMedia))
+                catch
                 {
-                    File.Copy(foundSrc, dstMedia, overwrite: true);
+                    // Ignore cleanup errors
                 }
+            }
 
-                if (Directory.Exists(rootDefaultDir))
+            // Only deploy poster image to rootDefaultDir for home screen library tile
+            var posterCandidates = new[]
+            {
+                Path.Combine(artworkSubdir, $"{type}_poster.png"),
+                Path.Combine(asmDir, $"{type}_poster.png"),
+                Path.Combine(asmDir, "poster.png")
+            };
+
+            var foundPoster = posterCandidates.FirstOrDefault(File.Exists);
+            if (foundPoster != null && Directory.Exists(rootDefaultDir))
+            {
+                var dstPoster = Path.Combine(rootDefaultDir, "poster.png");
+                if (!File.Exists(dstPoster))
                 {
-                    var dstRoot = Path.Combine(rootDefaultDir, dstName);
-                    if (!File.Exists(dstRoot))
-                    {
-                        File.Copy(foundSrc, dstRoot, overwrite: true);
-                    }
+                    File.Copy(foundPoster, dstPoster, overwrite: true);
                 }
             }
 
