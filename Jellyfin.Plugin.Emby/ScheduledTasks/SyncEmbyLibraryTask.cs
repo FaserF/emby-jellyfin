@@ -321,7 +321,7 @@ public class SyncEmbyLibraryTask : IScheduledTask
 
                 var seasonNum = ep.ParentIndexNumber ?? 1;
                 var epNum = ep.IndexNumber ?? 1;
-                var seasonDir = Path.Combine(sDir, $"Season {seasonNum:D2}");
+                var seasonDir = LocalLibraryMatcher.ResolveSeasonDirectory(sDir, seasonNum);
 
                 if (isMerged && localVideos.Contains((seasonNum, epNum)))
                 {

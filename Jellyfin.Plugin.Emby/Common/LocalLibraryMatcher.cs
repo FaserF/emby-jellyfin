@@ -26,8 +26,54 @@ public static class LocalLibraryMatcher
     };
 
     private static readonly Regex SeasonEpRegex = new(@"[sS](?<season>\d{1,2})[eE](?<episode>\d{1,3})", RegexOptions.Compiled);
-    private static readonly Regex SeasonDirRegex = new(@"Season\s*(?<season>\d{1,2})", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex SeasonDirRegex = new(@"(?:Season|Staffel)\s*(?<season>\d{1,2})", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex SpecialsDirRegex = new(@"^Specials?$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex EpOnlyRegex = new(@"[eE](?<episode>\d{1,3})|\b(?<episode>\d{1,3})\s*-", RegexOptions.Compiled);
+
+    public static string ResolveSeasonDirectory(string seriesDir, int seasonNum)
+    {
+        if (!Directory.Exists(seriesDir))
+        {
+            return Path.Combine(seriesDir, seasonNum == 0 ? "Specials" : $"Season {seasonNum:D2}");
+        }
+
+        try
+        {
+            var subDirs = Directory.GetDirectories(seriesDir);
+            if (seasonNum == 0)
+            {
+                foreach (var d in subDirs)
+                {
+                    var name = Path.GetFileName(d);
+                    if (SpecialsDirRegex.IsMatch(name) ||
+                        name.Equals("Season 00", StringComparison.OrdinalIgnoreCase) ||
+                        name.Equals("Season 0", StringComparison.OrdinalIgnoreCase) ||
+                        name.Equals("Staffel 00", StringComparison.OrdinalIgnoreCase) ||
+                        name.Equals("Staffel 0", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return d;
+                    }
+                }
+                return Path.Combine(seriesDir, "Specials");
+            }
+
+            foreach (var d in subDirs)
+            {
+                var name = Path.GetFileName(d);
+                var match = SeasonDirRegex.Match(name);
+                if (match.Success && int.TryParse(match.Groups["season"].Value, out var parsed) && parsed == seasonNum)
+                {
+                    return d;
+                }
+            }
+        }
+        catch
+        {
+            // fallback
+        }
+
+        return Path.Combine(seriesDir, $"Season {seasonNum:D2}");
+    }
 
     public static string NormalizeTitle(string? title)
     {
@@ -386,6 +432,17 @@ public static class LocalLibraryMatcher
                         if (int.TryParse(em.Groups["episode"].Value, out var ep))
                         {
                             set.Add((seasonFromDir, ep));
+                        }
+                    }
+                }
+                else if (SpecialsDirRegex.IsMatch(parentDir))
+                {
+                    var epMatches = EpOnlyRegex.Matches(fileName);
+                    foreach (Match em in epMatches)
+                    {
+                        if (int.TryParse(em.Groups["episode"].Value, out var ep))
+                        {
+                            set.Add((0, ep));
                         }
                     }
                 }
