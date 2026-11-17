@@ -60,7 +60,7 @@ public class SyncEmbyLibraryTask : IScheduledTask
         }
 
         using var client = new EmbyApiClient(_httpClientFactory.CreateClient("Emby"), _loggerFactory.CreateLogger<EmbyApiClient>());
-        var changes = await PerformSyncAsync(client, config, _logger, progress, cancellationToken, isManual: true, libraryManager: _libraryManager).ConfigureAwait(false);
+        var changes = await PerformSyncAsync(client, config, _logger, progress, cancellationToken, isManual: false, libraryManager: _libraryManager).ConfigureAwait(false);
         if (changes > 0)
         {
             _libraryManager.QueueLibraryScan();
@@ -271,7 +271,7 @@ public class SyncEmbyLibraryTask : IScheduledTask
                     var localNfo = Path.Combine(sDir, "tvshow.nfo");
                     if (!File.Exists(localNfo))
                     {
-                        if (WriteIfChanged(localNfo, FormatSeriesNfo(s, baseUrl, serverId)))
+                        if (WriteIfChanged(localNfo, FormatSeriesNfo(s, baseUrl, serverId), logger))
                         {
                             changes++;
                         }
@@ -284,7 +284,7 @@ public class SyncEmbyLibraryTask : IScheduledTask
                     var sDir = Path.Combine(tvDir, folderName);
                     seriesMap[s.Id] = (sDir, false, new HashSet<(int, int)>());
 
-                    if (WriteIfChanged(Path.Combine(sDir, "tvshow.nfo"), FormatSeriesNfo(s, baseUrl, serverId)))
+                    if (WriteIfChanged(Path.Combine(sDir, "tvshow.nfo"), FormatSeriesNfo(s, baseUrl, serverId), logger))
                     {
                         changes++;
                     }
@@ -334,12 +334,12 @@ public class SyncEmbyLibraryTask : IScheduledTask
                 var epStem = $"S{seasonNum:D2}E{epNum:D2} - {SanitizeFileName(ep.Name)} [EmbyEpisode-{ep.Id}]";
                 var streamUrl = BuildStrmContent(config, baseUrl, token, ep.Id);
 
-                if (WriteIfChanged(Path.Combine(seasonDir, $"{epStem}.strm"), streamUrl))
+                if (WriteIfChanged(Path.Combine(seasonDir, $"{epStem}.strm"), streamUrl, logger))
                 {
                     changes++;
                 }
 
-                if (WriteIfChanged(Path.Combine(seasonDir, $"{epStem}.nfo"), FormatEpisodeNfo(ep)))
+                if (WriteIfChanged(Path.Combine(seasonDir, $"{epStem}.nfo"), FormatEpisodeNfo(ep), logger))
                 {
                     changes++;
                 }
@@ -375,6 +375,10 @@ public class SyncEmbyLibraryTask : IScheduledTask
                 }
             }
         }
+
+        config.LastSyncUtc = DateTime.UtcNow;
+        config.LastSyncItemCount = changes;
+        Plugin.Instance?.SaveConfiguration();
 
         logger.LogInformation("Emby Federation sync completed with {Changes} file updates.", changes);
         return changes;
@@ -434,7 +438,9 @@ public class SyncEmbyLibraryTask : IScheduledTask
             if (File.Exists(path))
             {
                 var existing = File.ReadAllText(path, Encoding.UTF8);
-                if (string.Equals(existing, content, StringComparison.Ordinal))
+                var normExisting = existing.TrimEnd('\r', '\n').Replace("\r\n", "\n").TrimStart('\uFEFF');
+                var normContent = content.TrimEnd('\r', '\n').Replace("\r\n", "\n").TrimStart('\uFEFF');
+                if (string.Equals(normExisting, normContent, StringComparison.Ordinal))
                 {
                     return false;
                 }
@@ -446,8 +452,18 @@ public class SyncEmbyLibraryTask : IScheduledTask
                 Directory.CreateDirectory(dir);
             }
 
-            File.WriteAllText(path, content, Encoding.UTF8);
+            File.WriteAllText(path, content, new UTF8Encoding(false));
             return true;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            logger?.LogWarning("Access denied writing {Path}: {Message}", path, ex.Message);
+            return false;
+        }
+        catch (IOException ex)
+        {
+            logger?.LogWarning("IO error writing {Path}: {Message}", path, ex.Message);
+            return false;
         }
         catch (Exception ex)
         {
