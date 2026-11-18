@@ -9,6 +9,22 @@
     "imageUrl": "https://raw.githubusercontent.com/FaserF/emby-jellyfin/main/Jellyfin.Plugin.Emby/thumb.png",
     "versions": [
       {
+        "version": "1.0.6.0",
+        "changelog": "Changes since `v1.0.5.0`:\n\n### 🐛 Bug Fixes\n\n- **startup:** clean up 0-byte library artwork and reuse HttpClient in EmbyImageProvider ([bf0c0a5](https://github.com/FaserF/emby-jellyfin/commit/bf0c0a5))",
+        "targetAbi": "10.10.0.0",
+        "sourceUrl": "https://github.com/FaserF/emby-jellyfin/releases/download/v1.0.6.0/emby.zip",
+        "checksum": "b53851c67dbd7922b54f8a93acc9f841",
+        "timestamp": "2026-11-18T19:23:55Z"
+      },
+      {
+        "version": "1.0.6.0",
+        "changelog": "Changes since `v1.0.5.0`:\n\n### 🐛 Bug Fixes\n\n- **startup:** clean up 0-byte library artwork and reuse HttpClient in EmbyImageProvider ([bf0c0a5](https://github.com/FaserF/emby-jellyfin/commit/bf0c0a5))",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/FaserF/emby-jellyfin/releases/download/v1.0.6.0/emby.zip",
+        "checksum": "b53851c67dbd7922b54f8a93acc9f841",
+        "timestamp": "2026-11-18T19:23:55Z"
+      },
+      {
         "version": "1.0.5.0",
         "changelog": "Changes since `v1.0.4.0`:\n\n### 🐛 Bug Fixes\n\n- **sync:** resolve resync churn, persist LastSyncUtc, and normalize file comparison ([29cc2f7](https://github.com/FaserF/emby-jellyfin/commit/29cc2f7))\n- merge German Staffel & Specials seasons cleanly without duplicating ([70d3d58](https://github.com/FaserF/emby-jellyfin/commit/70d3d58))\n\n### 🔄 CI / CD\n\n- **ci:** update labeler.yml schema for actions/labeler v7 and correct paths ([f739345](https://github.com/FaserF/emby-jellyfin/commit/f739345))\n\n### 🔧 Maintenance\n\n- **deps:** update dependency dotnet-sdk to v11 (#10) ([357f6b5](https://github.com/FaserF/emby-jellyfin/commit/357f6b5))\n- **deps:** update dependency python to 3.15 (#6) ([abb655b](https://github.com/FaserF/emby-jellyfin/commit/abb655b))\n- **deps:** update softprops/action-gh-release action to v3 ([d20704e](https://github.com/FaserF/emby-jellyfin/commit/d20704e))\n- **deps:** update actions/setup-dotnet action to v6 ([d477762](https://github.com/FaserF/emby-jellyfin/commit/d477762))\n- **deps:** update actions/labeler action to v7 ([99ee378](https://github.com/FaserF/emby-jellyfin/commit/99ee378))\n- **deps:** update dependency xunit.v3 to 4.0.3 ([2865f95](https://github.com/FaserF/emby-jellyfin/commit/2865f95), [671a35e](https://github.com/FaserF/emby-jellyfin/commit/671a35e))\n- **deps:** update dependency microsoft.net.test.sdk to 18.12.0 ([270fb83](https://github.com/FaserF/emby-jellyfin/commit/270fb83))",
         "targetAbi": "10.10.0.0",
