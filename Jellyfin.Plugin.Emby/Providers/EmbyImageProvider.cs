@@ -88,5 +88,5 @@ public class EmbyImageProvider : IRemoteImageProvider, IHasOrder
     }
 
     public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken) =>
-        CreateClient().HttpClient.GetAsync(url, cancellationToken);
+        _httpClientFactory.CreateClient("Emby").GetAsync(url, cancellationToken);
 }

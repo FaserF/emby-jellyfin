@@ -492,17 +492,27 @@ public class EmbyStartupService : IHostedService
                 // Ignore folder creation errors
             }
 
-            // Remove unwanted logo from library root tile so it does not suppress plain text titles
-            var rootLogo = Path.Combine(rootDefaultDir, "logo.png");
-            if (File.Exists(rootLogo))
+            // Remove unwanted logo or corrupted 0-byte artwork from library root tile so it does not suppress plain text titles or crash BlurHashEncoder
+            foreach (var imgName in new[] { "logo.png", "logo.jpg", "folder.png", "folder.jpg", "landscape.png", "landscape.jpg", "backdrop.png", "backdrop.jpg", "banner.png", "banner.jpg", "poster.png", "poster.jpg", "thumb.png", "thumb.jpg" })
             {
-                try
+                var candidate = Path.Combine(rootDefaultDir, imgName);
+                if (!File.Exists(candidate))
                 {
-                    File.Delete(rootLogo);
+                    continue;
                 }
-                catch
+
+                var isLogo = imgName.StartsWith("logo.", StringComparison.OrdinalIgnoreCase);
+                var isEmpty = new FileInfo(candidate).Length == 0;
+                if (isLogo || isEmpty)
                 {
-                    // Ignore cleanup errors
+                    try
+                    {
+                        File.Delete(candidate);
+                    }
+                    catch
+                    {
+                        // Ignore cleanup errors
+                    }
                 }
             }
 
@@ -529,7 +539,7 @@ public class EmbyStartupService : IHostedService
                 if (found != null && Directory.Exists(rootDefaultDir))
                 {
                     var dst = Path.Combine(rootDefaultDir, dstName);
-                    if (!File.Exists(dst))
+                    if (!File.Exists(dst) || new FileInfo(dst).Length == 0)
                     {
                         File.Copy(found, dst, overwrite: true);
                     }
