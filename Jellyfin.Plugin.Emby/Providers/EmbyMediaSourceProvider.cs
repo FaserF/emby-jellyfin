@@ -230,9 +230,31 @@ public class EmbyMediaSourceProvider : IMediaSourceProvider, IHasOrder
                 }
 
                 var sourceId = sourceIndex == 0 ? item.Id.ToString("N") : $"{item.Id:N}_{sourceIndex}";
-                var sourceName = !string.IsNullOrWhiteSpace(embySource.Name)
-                    ? embySource.Name
-                    : $"{item.Name} ({container.ToUpperInvariant()})";
+                var videoStream = streams.FirstOrDefault(s => s.Type == MediaStreamType.Video);
+                var resLabel = videoStream != null && videoStream.Height.HasValue
+                    ? $"{videoStream.Height}p"
+                    : string.Empty;
+
+                var bitrateLabel = embySource.Bitrate.HasValue && embySource.Bitrate.Value > 0
+                    ? $"{embySource.Bitrate.Value / 1_000_000.0:F1} Mbps"
+                    : string.Empty;
+
+                string sourceName;
+                if (!string.IsNullOrWhiteSpace(embySource.Name))
+                {
+                    sourceName = embySource.Name;
+                    if (!string.IsNullOrWhiteSpace(resLabel) && !sourceName.Contains(resLabel, StringComparison.OrdinalIgnoreCase))
+                    {
+                        sourceName += $" ({resLabel})";
+                    }
+                }
+                else
+                {
+                    var qualityTag = !string.IsNullOrWhiteSpace(resLabel) ? resLabel : container.ToUpperInvariant();
+                    sourceName = !string.IsNullOrWhiteSpace(bitrateLabel)
+                        ? $"{qualityTag} ({bitrateLabel})"
+                        : $"{item.Name} ({qualityTag})";
+                }
 
                 var source = new MediaSourceInfo
                 {
