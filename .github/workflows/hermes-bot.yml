@@ -19,5 +19,11 @@ permissions:
 
 jobs:
   bot:
-    uses: FaserF/repo-template/.github/workflows/reusable-hermes-bot.yml@v1
+    if: |
+      github.actor != 'faserf-hermes-agent[bot]' &&
+      !endsWith(github.actor, '[bot]') &&
+      !startsWith(github.actor, 'app/') &&
+      (github.event_name != 'issue_comment' || (github.event.comment.user.type != 'Bot' && !endsWith(github.event.comment.user.login, '[bot]') && !startsWith(github.event.comment.user.login, 'app/'))) &&
+      (github.event.issue == null || (!contains(github.event.issue.title, 'Dependency Dashboard') && !contains(github.event.issue.title, 'Renovate') && !contains(github.event.issue.title, 'Dependabot') && github.event.issue.user.type != 'Bot' && !endsWith(github.event.issue.user.login, '[bot]')))
+    uses: ./.github/workflows/reusable-hermes-bot.yml
     secrets: inherit

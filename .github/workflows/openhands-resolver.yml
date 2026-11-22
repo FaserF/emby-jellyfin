@@ -1,4 +1,4 @@
-name: OpenHands Issue Resolver
+name: OpenHands Issue & PR Resolver
 
 on:
   issues:
@@ -13,6 +13,11 @@ permissions:
 
 jobs:
   resolve:
-    if: github.event.label.name == 'openhands:ready'
-    uses: FaserF/repo-template/.github/workflows/reusable-openhands-resolver.yml@v1
+    if: |
+      github.event.label.name == 'openhands:ready' &&
+      github.actor != 'faserf-hermes-agent[bot]' &&
+      !endsWith(github.actor, '[bot]') &&
+      !startsWith(github.actor, 'app/') &&
+      (github.event.issue == null || (github.event.issue.user.type != 'Bot' && !endsWith(github.event.issue.user.login, '[bot]') && !startsWith(github.event.issue.user.login, 'app/') && !contains(github.event.issue.title, 'Dependency Dashboard') && !contains(github.event.issue.title, 'Renovate') && !contains(github.event.issue.title, 'Dependabot')))
+    uses: ./.github/workflows/reusable-openhands-resolver.yml
     secrets: inherit
