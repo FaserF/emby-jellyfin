@@ -16,6 +16,15 @@
 
 ---
 
+## ⚡ Quick Setup (3-Minute Guide)
+
+1. **Open Plugin Settings**: In Jellyfin Dashboard → **Plugins** → **Emby Federation & Bridge**.
+2. **Connect Remote Emby Server (Step 1)**: Enter your **Emby Server URL**, **Username**, and **Password**, then click **🔍 Test & Save Connection**. The **Live Readiness Checklist** confirms connection, storage path, and synced catalog counts.
+3. **Map Users (Step 2, Optional)**: Link individual Jellyfin users to their Emby accounts in **Step 2 — Multi-User Account Mapping** (or leave **Allow unlinked Jellyfin users** enabled to use the primary account).
+4. **Sync**: Click **⚡ Sync Emby Library Now** and expand the **Advanced** sections below only if you need to customize library merging, rate limits, or Seerr Guard.
+
+---
+
 ## 📖 Table of Contents
 
 1. [Overview & Core Philosophy](#-overview--core-philosophy)

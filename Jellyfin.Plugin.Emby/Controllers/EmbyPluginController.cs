@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using Jellyfin.Plugin.Emby.Api;
+using Jellyfin.Plugin.Emby.Common;
 using Jellyfin.Plugin.Emby.Configuration;
 using Jellyfin.Plugin.Emby.ScheduledTasks;
 using MediaBrowser.Controller.Library;
@@ -13,6 +14,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.Emby.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("api/embyPlugin")]
 public class EmbyPluginController : ControllerBase
 {
@@ -20,17 +22,20 @@ public class EmbyPluginController : ControllerBase
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<EmbyPluginController> _logger;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly IUserManager? _userManager;
 
     public EmbyPluginController(
         IHttpClientFactory httpClientFactory,
         ILibraryManager libraryManager,
         ILogger<EmbyPluginController> logger,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        IUserManager? userManager = null)
     {
         _httpClientFactory = httpClientFactory;
         _libraryManager = libraryManager;
         _logger = logger;
         _loggerFactory = loggerFactory;
+        _userManager = userManager;
     }
 
     private static PluginConfiguration Config => Plugin.Instance?.Configuration ?? new PluginConfiguration();
@@ -63,11 +68,28 @@ public class EmbyPluginController : ControllerBase
     }
 
     [HttpPost("auth/test")]
-    [AllowAnonymous]
     public async Task<ActionResult> TestAndSaveConnection(
         [FromBody] EmbyAuthTestRequest request,
         CancellationToken cancellationToken = default)
     {
+        if (!ControllerAuthHelper.TryGetCaller(User, _userManager, out var caller) || caller == null)
+        {
+            return Unauthorized();
+        }
+
+        if (string.IsNullOrWhiteSpace(request.JellyfinUser))
+        {
+            if (!caller.IsAdmin)
+            {
+                return Forbid();
+            }
+        }
+        else if (!ControllerAuthHelper.IsOwnerOrAdmin(caller, request.JellyfinUser) ||
+                 !ControllerAuthHelper.IsOwnerOrAdmin(caller, request.JellyfinUserId))
+        {
+            return Forbid();
+        }
+
         if (string.IsNullOrWhiteSpace(request.ServerUrl) || string.IsNullOrWhiteSpace(request.Username))
         {
             return BadRequest(new { ok = false, error = "Server URL and Username are required." });
@@ -132,36 +154,125 @@ public class EmbyPluginController : ControllerBase
         });
     }
 
+    [HttpGet("users")]
+    public ActionResult GetUserMappings()
+    {
+        if (!ControllerAuthHelper.TryGetCaller(User, _userManager, out var caller) || caller == null)
+        {
+            return Unauthorized();
+        }
+
+        var config = Config;
+        var jfUsers = new List<object>();
+        if (_userManager != null)
+        {
+            foreach (var user in _userManager.GetUsers())
+            {
+                var uid = user.Id.ToString("N");
+                var uname = user.Username;
+                if (string.IsNullOrWhiteSpace(uname))
+                {
+                    continue;
+                }
+
+                if (!caller.IsAdmin &&
+                    !ControllerAuthHelper.IsOwnerOrAdmin(caller, uid) &&
+                    !ControllerAuthHelper.IsOwnerOrAdmin(caller, uname))
+                {
+                    continue;
+                }
+
+                var linked = (config.UserAccounts ?? new List<EmbyUserAccountEntry>()).FirstOrDefault(a =>
+                    string.Equals(PluginConfiguration.NormalizeId(a.JellyfinUser), PluginConfiguration.NormalizeId(uname), StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(PluginConfiguration.NormalizeId(a.JellyfinUserId), PluginConfiguration.NormalizeId(uid), StringComparison.OrdinalIgnoreCase));
+
+                jfUsers.Add(new
+                {
+                    id = uid,
+                    username = uname,
+                    isLinked = linked != null && !string.IsNullOrWhiteSpace(linked.AccessToken),
+                    embyUsername = linked?.EmbyUsername,
+                    embyServerUrl = linked?.EmbyServerUrl
+                });
+            }
+        }
+
+        return Ok(new
+        {
+            primaryUser = caller.IsAdmin ? config.PrimaryJellyfinUser : caller.Username,
+            enablePublicFallback = config.EnablePublicFallbackForUnlinkedUsers,
+            users = jfUsers
+        });
+    }
+
+    [HttpDelete("users/{jellyfinUser}")]
+    public ActionResult UnlinkUserAccount([FromRoute] string jellyfinUser)
+    {
+        if (!ControllerAuthHelper.TryGetCaller(User, _userManager, out var caller) || caller == null)
+        {
+            return Unauthorized();
+        }
+
+        if (!ControllerAuthHelper.IsOwnerOrAdmin(caller, jellyfinUser))
+        {
+            return Forbid();
+        }
+
+        var config = Config;
+        var norm = PluginConfiguration.NormalizeId(jellyfinUser);
+        config.UserAccounts?.RemoveAll(u =>
+            string.Equals(PluginConfiguration.NormalizeId(u.JellyfinUser), norm, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(PluginConfiguration.NormalizeId(u.JellyfinUserId), norm, StringComparison.OrdinalIgnoreCase));
+
+        Plugin.Instance?.SaveConfiguration();
+        return Ok(new { ok = true, unlinked = true, jellyfinUser });
+    }
+
     [HttpGet("status")]
-    [AllowAnonymous]
     public async Task<ActionResult> GetFederationStatus(CancellationToken cancellationToken)
     {
         var config = Config;
         using var client = CreateClient();
         var (baseUrl, token, uid, srvId) = await client.EnsureAuthenticatedAsync(null, cancellationToken).ConfigureAwait(false);
 
-        var moviesDir = Path.Combine(config.StrmLibraryPath ?? "/data/emby", "movies");
-        var tvDir = Path.Combine(config.StrmLibraryPath ?? "/data/emby", "tv");
+        var basePath = config.StrmLibraryPath ?? "/data/emby";
+        var strmPathWritable = false;
+        try
+        {
+            Directory.CreateDirectory(basePath);
+            strmPathWritable = Directory.Exists(basePath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Status: StrmLibraryPath {Path} is not accessible", basePath);
+        }
+
+        var moviesDir = Path.Combine(basePath, "movies");
+        var tvDir = Path.Combine(basePath, "tv");
         var syncedMovies = Directory.Exists(moviesDir) ? Directory.GetDirectories(moviesDir).Length : 0;
         var syncedSeries = Directory.Exists(tvDir) ? Directory.GetDirectories(tvDir).Length : 0;
 
         return Ok(new
         {
             ok = !string.IsNullOrWhiteSpace(baseUrl) && !string.IsNullOrWhiteSpace(token),
+            connected = !string.IsNullOrWhiteSpace(baseUrl) && !string.IsNullOrWhiteSpace(token),
             serverUrl = baseUrl,
             embyUser = config.EmbyUsername,
             embyUserId = uid,
             serverId = srvId,
             syncedMovies,
             syncedSeries,
-            strmLibraryPath = config.StrmLibraryPath,
+            strmLibraryPath = basePath,
+            strmPathWritable,
             seerrGuardEnabled = config.EnableSeerrRequestGuard,
-            userMappingsCount = config.UserAccounts?.Count ?? 0
+            userMappingsCount = config.UserAccounts?.Count ?? 0,
+            lastSyncUtc = config.LastSyncUtc,
+            lastSyncItemCount = config.LastSyncItemCount
         });
     }
 
     [HttpPost("sync")]
-    [AllowAnonymous]
+    [Authorize(Policy = "RequiresElevation")]
     public async Task<ActionResult> TriggerSyncNow(CancellationToken cancellationToken)
     {
         var config = Config;
@@ -172,7 +283,6 @@ public class EmbyPluginController : ControllerBase
     }
 
     [HttpGet("search")]
-    [AllowAnonymous]
     public async Task<ActionResult> SearchEmbyCatalog(
         [FromQuery] string q,
         [FromQuery] string? type = null,
@@ -219,7 +329,6 @@ public class EmbyPluginController : ControllerBase
     }
 
     [HttpGet("check-availability")]
-    [AllowAnonymous]
     public async Task<ActionResult> CheckAvailability(
         [FromQuery] string mediaType = "movie",
         [FromQuery] string? tmdbId = null,
@@ -480,7 +589,7 @@ public class EmbyPluginController : ControllerBase
     }
 
     [HttpPost("seerr/test")]
-    [AllowAnonymous]
+    [Authorize(Policy = "RequiresElevation")]
     public async Task<ActionResult> TestSeerrConnection(
         [FromBody] SeerrTestRequest request,
         CancellationToken cancellationToken = default)

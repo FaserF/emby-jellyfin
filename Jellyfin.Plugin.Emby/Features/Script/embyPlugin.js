@@ -17,6 +17,17 @@
         headerRight.insertBefore(btn, headerRight.firstChild);
     }
 
+    function authFetch(url, options) {
+        options = options || {};
+        var headers = new Headers(options.headers || {});
+        var token = window.ApiClient && window.ApiClient.accessToken && window.ApiClient.accessToken();
+        if (token) {
+            headers.set("X-Emby-Token", token);
+        }
+        options.headers = headers;
+        return fetch(url, options);
+    }
+
     function openEmbySearchModal() {
         var existing = document.getElementById("embyFederationModal");
         if (existing) existing.remove();
@@ -72,14 +83,16 @@
         };
 
         // Fetch status
-        fetch("/api/embyPlugin/status")
+        authFetch("/api/embyPlugin/status")
             .then(function (r) { return r.json(); })
             .then(function (status) {
                 var banner = document.getElementById("embyStatusBanner");
-                if (status.connected) {
-                    banner.innerHTML = '<span style="color:#52B54B;">● Remote Emby Server Connected:</span> ' + (status.serverUrl || "") + ' | Catalog: ' + (status.moviesTotal || 0) + ' Movies, ' + (status.seriesTotal || 0) + ' Series (' + (status.episodesTotal || 0) + ' Episodes)';
+                if (status.connected || status.ok) {
+                    banner.style.color = "#52B54B";
+                    banner.textContent = "● Remote Emby Server Connected: " + (status.serverUrl || "") + " | Synced: " + (status.syncedMovies || 0) + " Movies, " + (status.syncedSeries || 0) + " Series";
                 } else {
-                    banner.innerHTML = '<span style="color:#e50914;">○ Emby Server not connected or credentials required.</span>';
+                    banner.style.color = "#e50914";
+                    banner.textContent = "○ Emby Server not connected or credentials required.";
                 }
             })
             .catch(function (e) {
@@ -89,13 +102,16 @@
         // Trigger Sync
         document.getElementById("embyBtnTriggerSyncModal").onclick = function () {
             var banner = document.getElementById("embyStatusBanner");
+            banner.style.color = "#ccc";
             banner.textContent = "⚡ Syncing Emby catalog into Jellyfin...";
-            fetch("/api/embyPlugin/sync", { method: "POST" })
+            authFetch("/api/embyPlugin/sync", { method: "POST" })
                 .then(function (r) { return r.json(); })
                 .then(function (res) {
-                    banner.innerHTML = '<span style="color:#52B54B;">✓ Sync finished!</span> Movies: ' + (res.moviesAdded || 0) + ', Episodes: ' + (res.episodesAdded || 0);
+                    banner.style.color = "#52B54B";
+                    banner.textContent = "✓ Sync finished! Changes: " + (res.changes || 0);
                 })
                 .catch(function (err) {
+                    banner.style.color = "#e50914";
                     banner.textContent = "✗ Sync failed: " + err.message;
                 });
         };
@@ -115,13 +131,14 @@
             stat.textContent = "Authenticating with Emby...";
             var currentUser = (window.ApiClient && ApiClient.getCurrentUserId) ? ApiClient.getCurrentUserId() : "";
 
-            fetch("/api/embyPlugin/auth/test", {
+            authFetch("/api/embyPlugin/auth/test", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     serverUrl: sUrl,
                     username: uName,
                     password: pWord,
+                    jellyfinUser: uName,
                     jellyfinUserId: currentUser
                 })
             }).then(function (r) { return r.json(); })
@@ -150,7 +167,7 @@
             var url = "/api/embyPlugin/search?q=" + encodeURIComponent(query);
             if (type) url += "&type=" + encodeURIComponent(type);
 
-            fetch(url)
+            authFetch(url)
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     resultsEl.innerHTML = "";
