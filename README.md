@@ -2,7 +2,7 @@
 
 # 🎬 Jellyfin Emby Federation & Bridge Plugin (`Jellyfin.Plugin.Emby`)
 
-**A 1:1 Emby Server Federation, Metadata Mirroring, and Stream Bridge Built Natively for Jellyfin 10.10+ & 12.x**
+**Emby Server Federation, Metadata Sync, and Stream Bridge for Jellyfin 10.10+ & 12.x**
 
 [![.NET 10.0](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Jellyfin 10.10+ | 12.x](https://img.shields.io/badge/Jellyfin-10.10%2B%20%7C%2012.x-00A4DC?logo=jellyfin&logoColor=white)](https://jellyfin.org/)
@@ -10,7 +10,7 @@
 [![Seerr Guard](https://img.shields.io/badge/Seerr%20Guard-Jellyseerr%20%2B%20Overseerr-E5A00D)](https://github.com/Fallenbagel/jellyseerr)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-*Seamlessly integrate any remote or peer Emby media server into your local Jellyfin instance with **1:1 metadata mirroring**, **zero-buffer `.strm` direct play**, **dynamic multi-quality stream resolution**, **remote Emby server rate-limiting & protection**, **native external link buttons**, and an **intelligent Seerr / Suggestarr Request Guard** that eliminates duplicate downloads.*
+*Integrates a remote Emby media server into Jellyfin with metadata mirroring, `.strm` direct-play or proxied streaming, multi-quality stream selection, configurable API rate-limiting, external Emby Web links, and a Seerr / Sonarr / Radarr duplicate request guard.*
 
 </div>
 

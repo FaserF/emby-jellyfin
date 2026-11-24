@@ -583,8 +583,12 @@ public class EmbyPluginController : ControllerBase
         Response.Headers["Accept-Ranges"] = "bytes";
         Response.ContentType = resp.Content.Headers.ContentType?.ToString() ?? "video/x-matroska";
 
-        await using var stream = await resp.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        await stream.CopyToAsync(Response.Body, 65536, cancellationToken).ConfigureAwait(false);
+        if (!HttpMethods.IsHead(Request.Method))
+        {
+            await using var stream = await resp.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            await stream.CopyToAsync(Response.Body, 262144, cancellationToken).ConfigureAwait(false);
+        }
+
         return new EmptyResult();
     }
 

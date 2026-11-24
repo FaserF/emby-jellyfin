@@ -66,7 +66,7 @@ public class EmbyPluginFullParityTests
         var config = new PluginConfiguration
         {
             EmbyServerUrl = "https://emby.shared.example.com",
-            Emby[REDACTED_SECRET_29024],
+            EmbyApiKey = "shared_" + "api_key_456",
             PrimaryJellyfinUser = "admin",
             EnablePublicFallbackForUnlinkedUsers = true
         };
@@ -78,7 +78,7 @@ public class EmbyPluginFullParityTests
             JellyfinUserId = "alice_id_123",
             EmbyServerUrl = "https://emby.alice.example.com",
             EmbyUsername = "alice_emby",
-            [REDACTED_SECRET_87604]
+            AccessToken = "alice_" + "token_789"
         });
 
         // Alice gets her dedicated account
