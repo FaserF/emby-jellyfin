@@ -66,7 +66,7 @@ public class EmbyPluginFullParityTests
         var config = new PluginConfiguration
         {
             EmbyServerUrl = "https://emby.shared.example.com",
-            EmbyApiKey = "shared_api_key_456",
+            EmbyApiKey = "REDACTED_SECRET_18071",
             PrimaryJellyfinUser = "admin",
             EnablePublicFallbackForUnlinkedUsers = true
         };
@@ -78,19 +78,19 @@ public class EmbyPluginFullParityTests
             JellyfinUserId = "alice_id_123",
             EmbyServerUrl = "https://emby.alice.example.com",
             EmbyUsername = "alice_emby",
-            AccessToken = "alice_token_789"
+            AccessToken = "REDACTED_SECRET_17017"
         });
 
         // Alice gets her dedicated account
         var aliceAcc = config.GetAccountForUser("alice");
         aliceAcc.Should().NotBeNull();
-        aliceAcc!.AccessToken.Should().Be("alice_token_789");
+        aliceAcc!.AccessToken.Should().Be("REDACTED_SECRET_17017");
         aliceAcc.EmbyServerUrl.Should().Be("https://emby.alice.example.com");
 
         // Unlinked user gets shared fallback
         var bobAcc = config.GetAccountForUser("bob");
         bobAcc.Should().NotBeNull();
-        bobAcc!.AccessToken.Should().Be("shared_api_key_456");
+        bobAcc!.AccessToken.Should().Be("REDACTED_SECRET_18071");
         bobAcc.EmbyServerUrl.Should().Be("https://emby.shared.example.com");
     }
 
